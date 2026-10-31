@@ -1167,7 +1167,32 @@ test(
           requestId: randomUUID(),
         });
         assert.equal(malformed.body.action.status, "draft");
+        assert.equal(malformed.body.action.kind, "clarify");
         assert.match(malformed.body.answer, /couldn't reliably interpret/);
+        assert.equal(
+          (await call(`/chat-actions/${malformed.body.action.id}/commit`, {}))
+            .status,
+          400,
+        );
+        const chooseStock = {
+          message: "Add more units to existing stock.",
+          manageStock: true,
+          actionChoiceId: malformed.body.action.id,
+          conversationId: plannerConversation,
+          requestId: randomUUID(),
+        };
+        const picked = await call("/chat", chooseStock);
+        assert.equal(picked.body.action.kind, "stock");
+        assert.equal(picked.body.action.draft.quantityKnown, false);
+        assert.equal(
+          (await call("/chat", chooseStock)).body.action.id,
+          picked.body.action.id,
+        );
+        assert.equal(
+          (await call("/chat", { ...chooseStock, requestId: randomUUID() }))
+            .status,
+          502,
+        );
         const cancelled = await call("/chat", {
           message: "never mind",
           conversationId: plannerConversation,
@@ -1179,6 +1204,103 @@ test(
             .available,
           1,
         );
+        actionPlan = {
+          intent: "stock",
+          operation: null,
+          item: "Green motor",
+          destination: null,
+          source: null,
+          quantity: null,
+          all: false,
+        };
+        const more = await call("/chat", {
+          message: "I picked up more green motors for our inventory",
+          conversationId: plannerConversation,
+          requestId: randomUUID(),
+        });
+        assert.equal(more.body.action.kind, "stock");
+        assert.match(more.body.answer, /How many additional/);
+        const revised = await call("/chat", {
+          message: "actually two",
+          conversationId: plannerConversation,
+          requestId: randomUUID(),
+        });
+        assert.equal(revised.body.action.status, "draft");
+        assert.equal(revised.body.action.draft.quantity, 2);
+        const stockDone = await call("/chat", {
+          message: "go ahead",
+          conversationId: plannerConversation,
+          requestId: randomUUID(),
+        });
+        assert.equal(stockDone.body.action.status, "completed");
+        assert.match(stockDone.body.answer, /Total: 5 → 7/);
+        const stockBefore = (await call("/state")).body.items.length;
+        const unlinkedPhoto = await call("/chat", {
+          message: "Reserve this new find for Juno",
+          photo: photo.body.photo,
+          conversationId: plannerConversation,
+          requestId: randomUUID(),
+        });
+        assert.equal(unlinkedPhoto.body.action.kind, "clarify");
+        assert.equal(
+          (await call("/state")).body.items.find((i) => i.id === spare.body.id)
+            .quantity,
+          7,
+        );
+        failChat = false;
+        actionPlan = {
+          intent: "chat",
+          operation: null,
+          item: null,
+          destination: null,
+          source: null,
+          quantity: null,
+          all: false,
+        };
+        await call("/chat", {
+          message: "What's this?",
+          photo: photo.body.photo,
+          conversationId: plannerConversation,
+        });
+        actionPlan = {
+          intent: "stash",
+          operation: null,
+          item: null,
+          destination: null,
+          source: null,
+          quantity: 2,
+          all: false,
+        };
+        const newDraft = await call("/chat", {
+          message: "I would like this recorded as a new item",
+          conversationId: plannerConversation,
+          requestId: randomUUID(),
+        });
+        assert.equal(newDraft.body.action.kind, "stash");
+        assert.equal(newDraft.body.action.draft.quantity, 2);
+        assert.equal(newDraft.body.action.photo, photo.body.photo);
+        assert.equal((await call("/state")).body.items.length, stockBefore);
+        const stashRevised = await call("/chat", {
+          message: "actually one",
+          conversationId: plannerConversation,
+          requestId: randomUUID(),
+        });
+        assert.equal(stashRevised.body.action.kind, "stash");
+        assert.equal(stashRevised.body.action.draft.quantity, 1);
+        const catalogPhoto = await call("/chat", {
+          message: "Please catalog this photo",
+          photo: photo.body.photo,
+          conversationId: plannerConversation,
+          requestId: randomUUID(),
+        });
+        assert.equal(catalogPhoto.body.action.kind, "stash");
+        assert.equal(catalogPhoto.body.action.photo, photo.body.photo);
+        await call("/chat", {
+          message: "cancel that",
+          conversationId: plannerConversation,
+          requestId: randomUUID(),
+        });
+        assert.equal((await call("/state")).body.items.length, stockBefore);
       }
     } finally {
       await stop();

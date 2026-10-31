@@ -224,7 +224,6 @@ export function openStore(path) {
           if (
             !parent ||
             parent.conversationId !== action.conversationId ||
-            parent.kind !== "reservation" ||
             parent.status !== "draft"
           )
             throw new Error(
@@ -282,6 +281,10 @@ export function openStore(path) {
         if (this.conversation(action.conversationId).legacy)
           throw new Error("Earlier history is read-only.");
         let receipt, itemId, allocationId;
+        if (action.kind === "clarify")
+          throw new Error(
+            "Choose which kind of change you want before applying it.",
+          );
         if (action.kind === "stash") {
           const item = this.saveItem({
             ...fields,

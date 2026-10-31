@@ -692,15 +692,16 @@ function App() {
     mode: "chat" | "identify" | "ideas" | "salvage" = "chat",
     identifyDraft?: Omit<Item, "id" | "available"> & { id?: string },
     conversationOverride?: string,
-    actionMode?: "stash" | "parts",
+    actionMode?: "stash" | "parts" | "stock",
     photoOverride?: string,
+    actionChoiceId?: string,
   ) {
     if (
       !text.trim() ||
       busy ||
       uploading ||
       boardMapping ||
-      !modelReady ||
+      (!modelReady && actionMode !== "stock" && actionMode !== "parts") ||
       requestInFlight.current
     )
       return;
@@ -732,6 +733,7 @@ function App() {
         photoOverride || boardPhoto?.photo,
         selected,
         actionMode,
+        actionChoiceId,
       ]);
       let requestId = crypto.randomUUID();
       if (!analysis) {
@@ -754,6 +756,8 @@ function App() {
           requestId,
           prepareStash: actionMode === "stash",
           manageParts: actionMode === "parts",
+          manageStock: actionMode === "stock",
+          actionChoiceId,
           conversationId: analysis ? null : conversationId,
           provider: models.provider || "ollama",
           model: models.selected,
@@ -830,7 +834,7 @@ function App() {
       await refresh();
       if (!analysis) {
         localStorage.removeItem(requestKey);
-        if (!photoOverride) setBoardPhoto(null);
+        if (!photoOverride && !actionChoiceId) setBoardPhoto(null);
       }
       if (salvageProposal && identifyDraft) {
         const draft = salvageProposal as SalvageProposal;
@@ -873,7 +877,7 @@ function App() {
         setReviewPrevious(identifyDraft.markings);
         setItem(applyIdentityProposal(identifyDraft, draft));
       }
-      if (!analysis && !photoOverride) setMessage("");
+      if (!analysis && !photoOverride && !actionChoiceId) setMessage("");
     } catch (e) {
       setError(
         (e as Error).name === "AbortError"
@@ -1972,6 +1976,23 @@ function App() {
                       projects={state.projects}
                       allocations={state.allocations}
                       onRefresh={refresh}
+                      choosing={busy || uploading || boardMapping}
+                      modelReady={modelReady}
+                      onChoose={(kind, actionId) =>
+                        void ask(
+                          kind === "stash"
+                            ? "Prepare a new Stash card from the recent photo."
+                            : kind === "stock"
+                              ? "Add more units to existing stock."
+                              : "Manage project parts.",
+                          "chat",
+                          undefined,
+                          undefined,
+                          kind,
+                          undefined,
+                          actionId,
+                        )
+                      }
                       onOpen={(id) => {
                         const found = state.items.find((i) => i.id === id);
                         if (found)

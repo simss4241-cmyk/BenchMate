@@ -1,7 +1,7 @@
 import { matchingRecords } from "./chat-actions.mjs";
 
 // Only explicit current-user additions to existing stock, never model claims.
-export function stockAddition(message, snapshot) {
+export function stockAddition(message, snapshot, context = {}) {
   if (
     /\b(?:don't|do not|not|example|pretend|imagine|what if|how (?:can|do|would)|should I|would these)\b|`|^\s*>/im.test(
       message,
@@ -38,6 +38,33 @@ export function stockAddition(message, snapshot) {
         .slice(0, match.index)
         .match(/\banother\s+([^,?.!]+)[,?.!]/i)?.[1]
         ?.trim() || "";
+  if (
+    !name ||
+    /^(?:one|this|that|it|these|those|of (?:these|those)|(?:the )?same (?:one|motor|item))$/i.test(
+      name,
+    )
+  ) {
+    const latestMessage = (snapshot.messages || [])
+      .filter((m) => m.conversationId === context.conversationId && m.actionId)
+      .at(-1);
+    const latest = (snapshot.chatActions || []).find(
+      (a) => a.id === latestMessage?.actionId,
+    );
+    const currentMessage = (snapshot.messages || [])
+      .filter((m) => m.conversationId === context.conversationId)
+      .at(-1);
+    const reference =
+      context.selectedId ||
+      (currentMessage?.actionId !== latest?.id
+        ? null
+        : latest?.status === "completed"
+          ? latest.itemId
+          : latest?.kind === "stock" && latest.status === "draft"
+            ? latest.draft.itemId
+            : null);
+    const item = snapshot.items.find((i) => i.id === reference);
+    if (item) name = item.name;
+  }
   if (!name || /^(?:this|that|it|these|those)$/i.test(name)) return null;
   const candidates = matchingRecords(snapshot.items, name);
   if (!candidates.length) return null;

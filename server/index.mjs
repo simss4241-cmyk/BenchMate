@@ -13,6 +13,12 @@ import { fileURLToPath } from "node:url";
 import { openStore } from "./store.mjs";
 import { stockAddition } from "./stock-addition.mjs";
 import {
+  pendingAction,
+  resolveIntent,
+  continueAction,
+  stockPrompt,
+} from "./chat-routing.mjs";
+import {
   reservationCommand,
   requestsStash,
   recentStashPhoto,
@@ -21,11 +27,8 @@ import { photoConversationRules } from "./response-guidance.mjs";
 import {
   actionPlanFormat,
   parseActionPlan,
-  pendingReservation,
-  continueReservation,
   shouldUnderstand,
   planningMessages,
-  resolveActionPlan,
   describeCommand,
 } from "./action-understanding.mjs";
 import {
@@ -360,6 +363,10 @@ app.post(
   route((req, res) => {
     const action = store.chatAction(z.string().uuid().parse(req.params.id));
     if (!action) return res.status(404).json({ error: "Action not found." });
+    if (action.kind === "clarify")
+      return res.status(400).json({
+        error: "Choose the kind of change first. Nothing has changed.",
+      });
     const fields =
       action.kind === "stash"
         ? itemSchema.parse({
@@ -655,6 +662,8 @@ app.post(
         requestId: z.string().uuid().optional(),
         prepareStash: z.boolean().default(false),
         manageParts: z.boolean().default(false),
+        manageStock: z.boolean().default(false),
+        actionChoiceId: z.string().uuid().optional(),
       })
       .parse(req.body);
     if (busy)
@@ -699,6 +708,8 @@ app.post(
         input.itemId,
         input.prepareStash,
         input.manageParts,
+        input.manageStock,
+        input.actionChoiceId,
       ]);
       const requestId = input.requestId || randomUUID();
       const existingAction = !analysis && store.chatAction(requestId);
@@ -714,9 +725,10 @@ app.post(
             "Earlier bench history is read-only. Start an exploration to continue.",
           );
       }
-      const stashRequest =
+      let stashRequest =
         !analysis && (input.prepareStash || requestsStash(input.message));
-      const stashPhoto = stashRequest
+      let stashQuantity = 1;
+      let stashPhoto = stashRequest
         ? input.photo || recentStashPhoto(snapshot, conversation)
         : null;
       const finishAction = (action, answer) => {
@@ -747,33 +759,66 @@ app.post(
         );
         return;
       }
-      const pending = !analysis
-        ? pendingReservation(snapshot, conversation)
-        : null;
+      const pending = !analysis ? pendingAction(snapshot, conversation) : null;
       const newPhotoContext = !!input.photo && !input.itemId;
-      const addition =
-        !analysis && !input.photo && !input.prepareStash && !input.manageParts
-          ? stockAddition(input.message, snapshot)
-          : null;
-      if (addition) {
-        const item = snapshot.items.find((i) => i.id === addition.itemId);
-        const prompt = item
-          ? `Review adding ${addition.quantity} more × ${item.name} to existing Stash stock. Nothing changes until you confirm.`
-          : "Choose the matching Stash item and review how many additional units you acquired.";
+      if (
+        input.actionChoiceId &&
+        (!pending ||
+          pending.id !== input.actionChoiceId ||
+          pending.kind !== "clarify")
+      )
+        throw new Error("This action choice changed. Use the latest card.");
+      const publishDraft = (
+        kind,
+        draft,
+        prompt,
+        execute = false,
+        photo = undefined,
+      ) => {
+        if (abort.signal.aborted) throw new Error("Request stopped.");
         const action = store.recordChatAction(
           {
             id: requestId,
             conversationId: conversation.id,
             fingerprint,
-            kind: "stock",
-            draft: addition,
+            kind,
+            draft,
             prompt,
+            photo,
             ...(pending ? { replacesActionId: pending.id } : {}),
           },
           input.message,
           prompt,
+          execute,
         );
         finishAction(action, prompt);
+      };
+      const clarify = (notice = "What would you like to do with this item?") =>
+        publishDraft(
+          "clarify",
+          { quantity: 1, request: input.message },
+          notice +
+            " Choose an action below, or dismiss this to keep chatting. Nothing has changed.",
+        );
+      const addition =
+        !analysis && !input.photo && !input.prepareStash && !input.manageParts
+          ? stockAddition(input.message, snapshot, {
+              conversationId: conversation.id,
+              selectedId: input.itemId,
+            })
+          : null;
+      if (addition || (!analysis && input.manageStock)) {
+        const item = snapshot.items.find((i) => i.id === input.itemId);
+        const draft = addition
+          ? { ...addition, quantityKnown: true }
+          : {
+              itemId: item?.id || "",
+              quantity: 1,
+              quantityKnown: false,
+              expectedUpdatedAt: item?.updatedAt,
+              expectedQuantity: item?.quantity,
+            };
+        publishDraft("stock", draft, stockPrompt(draft, snapshot));
         return;
       }
       const publishReservation = (command) => {
@@ -818,7 +863,8 @@ app.post(
         !stashRequest &&
         !newPhotoContext &&
         !input.manageParts &&
-        continueReservation(
+        !input.manageStock &&
+        continueAction(
           input.message,
           snapshot,
           conversation,
@@ -827,14 +873,13 @@ app.post(
         );
       if (continuation?.cancel) {
         if (abort.signal.aborted) throw new Error("Request stopped.");
-        const answer =
-          "Cancelled the pending parts change. No inventory changed.";
+        const answer = "Cancelled the pending change. No inventory changed.";
         const action = store.recordChatAction(
           {
             id: requestId,
             conversationId: conversation.id,
             fingerprint,
-            kind: "reservation",
+            kind: pending.kind,
             draft: pending.draft,
             prompt: answer,
             cancelled: true,
@@ -844,6 +889,32 @@ app.post(
           answer,
         );
         finishAction(action, answer);
+        return;
+      }
+      if (continuation && continuation.kind !== "reservation") {
+        try {
+          publishDraft(
+            continuation.kind,
+            continuation.draft,
+            continuation.prompt,
+            !!continuation.ready,
+            continuation.photo,
+          );
+        } catch (error) {
+          if (
+            !/changed|separate untested|additional quantity|exceed/.test(
+              error.message,
+            )
+          )
+            throw error;
+          publishDraft(
+            continuation.kind,
+            continuation.draft,
+            error.message + " No stock changed. Review the card below.",
+            false,
+            continuation.photo,
+          );
+        }
         return;
       }
       const command =
@@ -857,9 +928,16 @@ app.post(
             conversation,
             input.itemId,
           ));
-      if (command || (!analysis && input.manageParts)) {
+      const directParts =
+        command &&
+        (command.draft.itemId ||
+          command.draft.projectId ||
+          /\b(reserve|transfer|return|release|set aside|assign|move)\b/i.test(
+            input.message,
+          ));
+      if (directParts || (!analysis && input.manageParts)) {
         publishReservation(
-          command || {
+          (directParts ? command : null) || {
             draft: {
               operation: "reserve",
               itemId: input.itemId || "",
@@ -973,7 +1051,6 @@ app.post(
       if (
         !analysis &&
         !stashRequest &&
-        !newPhotoContext &&
         shouldUnderstand(input.message, snapshot, conversation, pending)
       ) {
         emit({ type: "progress", phase: "interpreting" });
@@ -986,6 +1063,7 @@ app.post(
               conversation,
               input.itemId,
               pending,
+              newPhotoContext,
             ),
             actionPlanFormat,
             () => {},
@@ -995,32 +1073,48 @@ app.post(
           planningUsage = body.usage || null;
         } catch (error) {
           if (abort.signal.aborted) throw error;
-          const draft = {
-            operation: pending?.draft.operation || "reserve",
-            itemId: pending?.draft.itemId || input.itemId || "",
-            projectId: pending?.draft.projectId || conversation.projectId || "",
-            allocationId: pending?.draft.allocationId || "",
-            quantity: 1,
-            quantityKnown: false,
-          };
-          publishReservation({
-            draft,
-            ready: false,
-            notice:
-              "I couldn't reliably interpret this request. If you intended a parts change, review the fields below.",
-          });
+          clarify("I couldn't reliably interpret the requested change.");
           return;
         }
-        const proposalCommand = resolveActionPlan(
+        const routed = resolveIntent(
           proposal,
           store.snapshot(),
           conversation,
           input.itemId,
           pending,
         );
-        if (proposalCommand) {
-          publishReservation(proposalCommand);
+        if (
+          newPhotoContext &&
+          ["stock", "reservation"].includes(routed?.kind)
+        ) {
+          clarify(
+            "This photo isn't a saved Stash item yet. Did you want a new card or a change to an existing item?",
+          );
           return;
+        }
+        if (routed?.kind === "reservation") {
+          publishReservation(routed);
+          return;
+        }
+        if (routed?.kind === "stock") {
+          publishDraft("stock", routed.draft, routed.prompt);
+          return;
+        }
+        if (routed?.kind === "clarify") {
+          clarify();
+          return;
+        }
+        if (routed?.kind === "stash") {
+          stashRequest = true;
+          stashQuantity = routed.quantity || 1;
+          stashPhoto = input.photo || recentStashPhoto(snapshot, conversation);
+          if (!stashPhoto) {
+            const answer =
+              "Attach a photo to prepare a new Stash card, or choose Add more existing stock if the item is already recorded.";
+            store.exchange(conversation.id, input.message, answer);
+            finishAction(null, answer);
+            return;
+          }
         }
       }
       const photoName = stashRequest
@@ -1187,7 +1281,7 @@ app.post(
       if (stashRequest && !unsuitable) {
         const draft = {
           name: proposal.candidateName || "Unidentified find",
-          quantity: 1,
+          quantity: stashQuantity,
           kind: /\b(?:donor|salvage|pull\s+(?:motors|parts)|harvest|strip\s+(?:it|parts))\b/i.test(
             input.message,
           )

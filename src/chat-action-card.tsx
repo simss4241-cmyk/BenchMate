@@ -4,7 +4,7 @@ import "./chat-action-card.css";
 
 export type ChatAction = {
   id: string;
-  kind: "stash" | "reservation" | "stock";
+  kind: "stash" | "reservation" | "stock" | "clarify";
   status: "draft" | "completed" | "cancelled";
   photo?: string;
   receipt?: string;
@@ -29,6 +29,7 @@ export type ChatAction = {
     expectedUpdatedAt?: string;
     expectedQuantity?: number;
     candidateItemIds?: string[];
+    request?: string;
   };
 };
 type ItemSummary = {
@@ -55,6 +56,9 @@ export function ChatActionCard({
   allocations,
   onRefresh,
   onOpen,
+  onChoose,
+  choosing,
+  modelReady,
 }: {
   action: ChatAction;
   items: ItemSummary[];
@@ -62,6 +66,9 @@ export function ChatActionCard({
   allocations: AllocationSummary[];
   onRefresh: () => Promise<void>;
   onOpen: (id: string) => void;
+  onChoose?: (kind: "stash" | "stock" | "parts", actionId: string) => void;
+  choosing?: boolean;
+  modelReady?: boolean;
 }) {
   const draftKey = `benchmate.chat.action.v1.${action.id}`;
   const [draft, setDraft] = useState(() => {
@@ -132,6 +139,44 @@ export function ChatActionCard({
           ? "Continued in a newer action below."
           : action.prompt || "Draft dismissed. No inventory changed."}
       </p>
+    );
+  if (action.kind === "clarify")
+    return (
+      <section className="chat-action" aria-label="Choose inventory action">
+        <p className="eyebrow">WHAT DID YOU WANT TO DO?</p>
+        <p>{action.prompt}</p>
+        <div className="chat-action-buttons">
+          <button
+            disabled={choosing || busy || modelReady === false}
+            className="secondary"
+            onClick={() => onChoose?.("stash", action.id)}
+          >
+            Create a new Stash card
+          </button>
+          <button
+            disabled={choosing || busy}
+            className="secondary"
+            onClick={() => onChoose?.("stock", action.id)}
+          >
+            Add more existing stock
+          </button>
+          <button
+            disabled={choosing || busy}
+            className="secondary"
+            onClick={() => onChoose?.("parts", action.id)}
+          >
+            Manage project parts
+          </button>
+          <button
+            disabled={choosing || busy}
+            className="text-button"
+            onClick={() => void submit(true)}
+          >
+            Dismiss · keep chatting
+          </button>
+        </div>
+        {error && <p role="alert">{error}</p>}
+      </section>
     );
   const duplicates =
     action.kind === "stash"
@@ -295,7 +340,8 @@ export function ChatActionCard({
               Total stock:{" "}
               <strong>
                 {draft.expectedQuantity ?? "Choose an item"} →{" "}
-                {draft.expectedQuantity === undefined
+                {draft.expectedQuantity === undefined ||
+                draft.quantityKnown === false
                   ? "—"
                   : draft.expectedQuantity + (draft.quantity || 0)}
               </strong>
@@ -420,7 +466,7 @@ export function ChatActionCard({
             max={100000}
             step={1}
             value={
-              action.kind === "reservation" && draft.quantityKnown === false
+              action.kind !== "stash" && draft.quantityKnown === false
                 ? ""
                 : draft.quantity
             }

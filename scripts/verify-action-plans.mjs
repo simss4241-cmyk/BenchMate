@@ -5,8 +5,8 @@ import {
   actionPlanFormat,
   parseActionPlan,
   planningMessages,
-  resolveActionPlan,
 } from "../server/action-understanding.mjs";
+import { resolveIntent } from "../server/chat-routing.mjs";
 if (!process.argv.includes("--live-meta")) {
   console.log(
     "For offline stock/action regressions run npm test. To evaluate the configured Meta model using synthetic requests: node scripts/verify-action-plans.mjs --live-meta",
@@ -50,6 +50,33 @@ const snapshot = {
 const conversation = { id: "chat", projectId: "juno" };
 const cases = [
   {
+    message:
+      "I grabbed another small DC motor; can you add one to our current stash?",
+    intent: "stock",
+    quantity: 1,
+  },
+  {
+    message: "Please increase the number of small DC motors by two",
+    intent: "stock",
+    quantity: 2,
+  },
+  {
+    message: "I picked up more of the same motor for inventory",
+    intent: "stock",
+    quantity: null,
+  },
+  { message: "Add another one to our stash", intent: "stock", quantity: 1 },
+  {
+    message: "Please make a new Stash card for the pictured DVD-RW drive",
+    intent: "stash",
+  },
+  {
+    message:
+      "I want to add this, but I haven't decided whether to catalog it or assign existing stock",
+    intent: "clarify",
+  },
+
+  {
     message: "I'd like three of these motors earmarked for this build",
     intent: "reservation",
     quantity: 3,
@@ -89,15 +116,15 @@ for (const [index, scenario] of cases.entries()) {
       signal: AbortSignal.timeout(45000),
     });
     const plan = parseActionPlan(body);
-    const command = resolveActionPlan(
-      plan,
-      snapshot,
-      conversation,
-      "motor",
-      null,
-    );
+    const command = resolveIntent(plan, snapshot, conversation, "motor", null);
     const passed =
       plan.intent === scenario.intent &&
+      (scenario.intent !== "stock" ||
+        (command?.kind === "stock" &&
+          command?.draft.itemId === "motor" &&
+          command.ready === false &&
+          (scenario.quantity === undefined ||
+            plan.quantity === scenario.quantity))) &&
       (scenario.intent !== "reservation" ||
         (plan.operation === "reserve" &&
           command?.draft.itemId === "motor" &&
