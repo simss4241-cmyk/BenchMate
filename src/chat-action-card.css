@@ -1,0 +1,58 @@
+.chat-action {
+  margin-top: 16px;
+  padding: 18px;
+  border: 1px solid var(--accent, #c8f56a);
+  border-radius: 8px;
+  background: #1b251a;
+}
+.chat-action fieldset {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+  display: grid;
+  gap: 14px;
+}
+.chat-action label {
+  display: grid;
+  gap: 6px;
+}
+.chat-action input,
+.chat-action select,
+.chat-action textarea {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+.chat-action .chat-action-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+}
+.chat-action-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.chat-photo {
+  display: block;
+  max-width: 100%;
+  width: 180px;
+  height: 120px;
+  object-fit: contain;
+  border-radius: 6px;
+  background: #121911;
+  margin: 8px 0;
+}
+.chat-action details label {
+  margin-top: 12px;
+}
+.chat-action.receipt {
+  border-color: #667d4b;
+}
+.conversation-workspace .assistant-panel:has(.chat-action fieldset) {
+  min-height: 740px;
+}
+.composer-actions {
+  flex-wrap: wrap;
+}

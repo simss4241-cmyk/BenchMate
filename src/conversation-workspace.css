@@ -1,0 +1,317 @@
+.conversation-workspace.bench-layout {
+  grid-template-columns: 270px minmax(0, 1fr);
+  gap: 22px;
+  align-items: start;
+}
+.conversation-workspace .main-panel {
+  min-width: 0;
+}
+.conversation-hub {
+  background: #20291f;
+  border: 1px solid #47553d;
+  border-radius: 8px;
+  padding: 19px;
+}
+.conversation-hub h2 {
+  font-size: 24px;
+  margin: 7px 0 12px;
+  letter-spacing: -0.6px;
+}
+.conversation-hub .eyebrow {
+  font-size: 9px;
+  line-height: 1.8;
+  color: #b0ca89;
+}
+.hub-intro {
+  color: #aebda3;
+  font-size: 12px;
+  line-height: 1.7;
+  margin-bottom: 18px;
+}
+.conversation-hub > .primary {
+  width: 100%;
+  justify-content: center;
+}
+.hub-new-exploration {
+  width: 100%;
+  justify-content: center;
+  margin-bottom: 9px;
+}
+.conversation-hub h3 {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  margin: 25px 0 11px;
+  color: #c9d6bd;
+}
+.hub-chat {
+  display: flex;
+  gap: 10px;
+  text-align: left;
+  width: 100%;
+  background: #182118;
+  border: 1px solid #3f4e35;
+  border-radius: 6px;
+  padding: 13px 10px;
+  margin: 8px 0;
+}
+.hub-chat > svg {
+  color: #a9c97f;
+  flex-shrink: 0;
+  margin-top: 3px;
+}
+.hub-chat > span {
+  min-width: 0;
+}
+.hub-chat strong {
+  display: block;
+  font-size: 12px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+.hub-chat small {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  color: #acbba1;
+  font-size: 11px;
+  line-height: 1.7;
+  margin-top: 5px;
+}
+.hub-chat time {
+  display: block;
+  color: #8fa77d;
+  font: 10px monospace;
+  margin-top: 9px;
+}
+.hub-chat.active {
+  border-color: var(--lime);
+  background: #2c3922;
+  box-shadow: inset 3px 0 var(--lime);
+}
+.hub-empty {
+  font-size: 11px;
+  line-height: 1.8;
+  color: #99ae8a;
+}
+.hub-history {
+  width: 100%;
+  text-align: left;
+  color: #b4c1aa;
+  background: transparent;
+  border: 0;
+  border-top: 1px solid #42533a;
+  padding: 18px 0 2px;
+  margin-top: 20px;
+  font-size: 11px;
+}
+.hub-history small {
+  display: block;
+  font-size: 10px;
+  color: #8e9e84;
+  margin-top: 7px;
+}
+.conversation-context-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 9px 15px;
+  border-bottom: 1px solid #3f4c37;
+}
+.conversation-context-bar > span {
+  color: #a8c38c;
+  font: 9px monospace;
+  letter-spacing: 0.6px;
+}
+.conversation-context-bar button {
+  font-size: 10px;
+  white-space: nowrap;
+}
+.assistant-heading > div:nth-child(2) {
+  min-width: 0;
+  flex: 1;
+}
+.assistant-heading h2 {
+  overflow-wrap: anywhere;
+}
+.conversation-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  border-bottom: 1px solid #3f4c37;
+}
+.conversation-actions form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  width: 100%;
+}
+.conversation-actions form input {
+  flex: 1;
+  min-width: 140px;
+  font-size: 13px;
+}
+.conversation-actions label {
+  width: 100%;
+  font-size: 11px;
+}
+.conversation-actions select {
+  margin-top: 6px;
+}
+.conversation-workspace .assistant-panel {
+  position: sticky;
+  top: 15px;
+  display: flex;
+  flex-direction: column;
+  max-height: none;
+  height: max(530px, calc(100dvh - 145px));
+}
+.conversation-workspace .conversation {
+  height: auto;
+  flex: 1;
+  min-height: 150px;
+  max-height: none;
+  overflow-y: auto;
+  padding: 24px;
+  overflow-anchor: none;
+}
+.workspace-content:has(.conversation-workspace) > .page-heading {
+  display: none;
+}
+.conversation-workspace .assistant-heading,
+.conversation-workspace .conversation-context-bar,
+.conversation-workspace .conversation-actions,
+.conversation-workspace .composer,
+.conversation-workspace .conversation-new-reply {
+  flex-shrink: 0;
+}
+.conversation-workspace .assistant-panel:has(.reply-settings[open]) {
+  height: auto;
+}
+.conversation-workspace
+  .assistant-panel:has(.reply-settings[open])
+  .conversation {
+  height: 350px;
+  flex: none;
+}
+.assistant-panel .conversation {
+  scroll-behavior: auto;
+  overflow-anchor: none;
+}
+.conversation-workspace .assistant-heading {
+  padding: 18px 22px;
+}
+.conversation-workspace .assistant-heading h2 {
+  font-size: 19px;
+  line-height: 1.4;
+}
+.conversation-workspace .chat-message p {
+  font-size: 14px;
+  line-height: 1.9;
+}
+.conversation-workspace .composer {
+  padding: 16px 22px;
+}
+.conversation-workspace .composer textarea {
+  min-height: 94px;
+}
+.conversation-workspace .assistant-welcome h3 {
+  font-size: 26px;
+}
+.conversation-workspace .assistant-welcome {
+  margin-bottom: 0;
+}
+.conversation-history-note {
+  font-size: 12px;
+  color: #c0ccad;
+  line-height: 1.8;
+  padding: 12px;
+  border: 1px dashed #62734c;
+  border-radius: 5px;
+}
+.conversation-new-reply {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  justify-content: center;
+  align-self: center;
+  margin: 8px auto;
+  background: #35472b;
+  color: #d4f59e;
+  border: 1px solid #809954;
+  border-radius: 20px;
+  padding: 8px 15px;
+  font-size: 12px;
+}
+.legacy-conversation .composer {
+  display: none;
+}
+.project-chat-button {
+  margin: 12px 0;
+}
+.reply-settings {
+  margin: 8px 0 12px;
+  font-size: 11px;
+  color: #b7c7a6;
+}
+.reply-settings > summary {
+  cursor: pointer;
+  padding: 5px 0;
+}
+.reply-settings > p {
+  font-size: 11px;
+  line-height: 1.6;
+}
+.reply-settings .context-select {
+  margin: 10px 0;
+}
+.assistant-panel .hosted-notice {
+  font-size: 10px;
+  line-height: 1.6;
+  padding: 8px 10px;
+}
+.bench-log[hidden] {
+  display: none;
+}
+.stats-strip[hidden] {
+  display: none;
+}
+@media (max-width: 900px) {
+  .conversation-workspace.bench-layout {
+    grid-template-columns: 215px minmax(0, 1fr);
+    gap: 12px;
+  }
+  .conversation-hub {
+    padding: 12px;
+  }
+  .conversation-workspace .assistant-heading {
+    padding: 14px;
+  }
+  .conversation-workspace .conversation {
+    padding: 16px;
+  }
+}
+@media (max-width: 650px) {
+  .conversation-workspace.bench-layout {
+    grid-template-columns: 1fr;
+  }
+  .conversation-workspace .assistant-panel {
+    position: static;
+  }
+  .conversation-hub {
+    max-height: 330px;
+    overflow-y: auto;
+  }
+  .conversation-workspace .conversation {
+    height: 52vh;
+    min-height: 280px;
+  }
+  .conversation-workspace .composer {
+    padding: 13px;
+  }
+}
