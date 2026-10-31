@@ -219,9 +219,27 @@ export function openStore(path) {
             throw new Error("This request ID belongs to another request.");
           return old;
         }
+        if (action.replacesActionId) {
+          const parent = this.chatAction(action.replacesActionId);
+          if (
+            !parent ||
+            parent.conversationId !== action.conversationId ||
+            parent.kind !== "reservation" ||
+            parent.status !== "draft"
+          )
+            throw new Error(
+              "This pending action changed. Review the latest action before continuing.",
+            );
+          parent.status = "cancelled";
+          parent.supersededBy = action.id;
+          db.prepare("UPDATE chat_actions SET body=? WHERE id=?").run(
+            JSON.stringify(parent),
+            parent.id,
+          );
+        }
         const saved = {
           ...action,
-          status: "draft",
+          status: action.cancelled ? "cancelled" : "draft",
           createdAt: new Date().toISOString(),
         };
         db.prepare("INSERT INTO chat_actions VALUES(?,?)").run(
@@ -272,6 +290,49 @@ export function openStore(path) {
           });
           itemId = item.id;
           receipt = `Added ${item.quantity} × ${item.name} to Stash. Condition: ${item.condition}.`;
+        } else if (action.kind === "stock") {
+          itemId = fields.itemId;
+          const current = available(itemId);
+          if (
+            !Number.isInteger(fields.quantity) ||
+            fields.quantity < 1 ||
+            fields.quantity > 100000 ||
+            current.item.quantity + fields.quantity > 100000
+          )
+            throw new Error(
+              "Choose a valid additional quantity; total stock cannot exceed 100000.",
+            );
+          if (
+            fields.expectedUpdatedAt !== current.item.updatedAt ||
+            fields.expectedQuantity !== current.item.quantity
+          )
+            throw new Error(
+              "This item changed. Refresh stock and review the addition again.",
+            );
+          if (
+            current.item.removedAt ||
+            current.item.dismantledAt ||
+            current.item.kind === "donor" ||
+            current.item.boardOrigin ||
+            current.item.recoveredFrom ||
+            current.item.condition !== "untested"
+          )
+            throw new Error(
+              "Use a separate untested Stash card for these units. Donors, Boardroom recoveries and tested batches need their own records.",
+            );
+          const before = current.item.quantity;
+          this.saveItem(
+            { ...current.item, quantity: before + fields.quantity },
+            itemId,
+          );
+          event("stock.added", {
+            itemId,
+            actionId: id,
+            quantity: fields.quantity,
+            before,
+            after: before + fields.quantity,
+          });
+          receipt = `Added ${fields.quantity} more × ${current.item.name} to existing Stash stock. Total: ${before} → ${before + fields.quantity}. Existing reservations and condition are unchanged.`;
         } else {
           const { operation, quantity, projectId } = fields;
           if (

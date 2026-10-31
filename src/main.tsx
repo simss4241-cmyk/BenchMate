@@ -1,3 +1,4 @@
+import { BenchPhoto } from "./bench-photo";
 import React, { useEffect, useRef, useState } from "react";
 import { ChatActionCard, type ChatAction } from "./chat-action-card";
 import { ProjectInventory } from "./project-inventory";
@@ -692,6 +693,7 @@ function App() {
     identifyDraft?: Omit<Item, "id" | "available"> & { id?: string },
     conversationOverride?: string,
     actionMode?: "stash" | "parts",
+    photoOverride?: string,
   ) {
     if (
       !text.trim() ||
@@ -727,7 +729,7 @@ function App() {
       const requestKey = `benchmate.chat.request.v1.${conversationId || "analysis"}`;
       const fingerprint = JSON.stringify([
         text,
-        boardPhoto?.photo,
+        photoOverride || boardPhoto?.photo,
         selected,
         actionMode,
       ]);
@@ -755,12 +757,15 @@ function App() {
           conversationId: analysis ? null : conversationId,
           provider: models.provider || "ollama",
           model: models.selected,
-          itemId: identifyDraft
-            ? identifyDraft.id || null
-            : mode === "ideas"
-              ? null
-              : selected,
+          itemId: photoOverride
+            ? null
+            : identifyDraft
+              ? identifyDraft.id || null
+              : mode === "ideas"
+                ? null
+                : selected,
           photo:
+            photoOverride ||
             identifyDraft?.photo ||
             (mode === "chat" ? boardPhoto?.photo : null) ||
             null,
@@ -825,7 +830,7 @@ function App() {
       await refresh();
       if (!analysis) {
         localStorage.removeItem(requestKey);
-        setBoardPhoto(null);
+        if (!photoOverride) setBoardPhoto(null);
       }
       if (salvageProposal && identifyDraft) {
         const draft = salvageProposal as SalvageProposal;
@@ -868,7 +873,7 @@ function App() {
         setReviewPrevious(identifyDraft.markings);
         setItem(applyIdentityProposal(identifyDraft, draft));
       }
-      if (!analysis) setMessage("");
+      if (!analysis && !photoOverride) setMessage("");
     } catch (e) {
       setError(
         (e as Error).name === "AbortError"
@@ -1408,7 +1413,7 @@ function App() {
                               >
                                 <span className="equipment-photo">
                                   {tool.photo ? (
-                                    <img
+                                    <BenchPhoto
                                       src={`/api/photos/${tool.photo}`}
                                       alt=""
                                     />
@@ -1528,7 +1533,7 @@ function App() {
                         >
                           <div className="part-photo">
                             {i.photo ? (
-                              <img
+                              <BenchPhoto
                                 src={`/api/photos/${i.photo}`}
                                 alt={i.name}
                               />
@@ -1944,6 +1949,19 @@ function App() {
                 legacy={activeConversation?.legacy}
                 layout={tab}
                 onStop={() => abortRef.current?.abort()}
+                onPreparePhoto={(photo) =>
+                  void ask(
+                    "Prepare a Stash card from this photo.",
+                    "chat",
+                    undefined,
+                    undefined,
+                    "stash",
+                    photo,
+                  )
+                }
+                photoActionDisabled={
+                  busy || uploading || boardMapping || !modelReady
+                }
                 renderAction={(id) => {
                   const action = state.chatActions?.find((a) => a.id === id);
                   return action ? (
@@ -1969,7 +1987,7 @@ function App() {
               <div className="composer">
                 {boardPhoto && (
                   <p className="hosted-notice">
-                    <img
+                    <BenchPhoto
                       className="chat-photo"
                       src={`/api/photos/${boardPhoto.photo}`}
                       alt="Photo attached to your next message"
@@ -2443,7 +2461,7 @@ function App() {
                     )}
                     <label className="photo-upload">
                       {item.photo ? (
-                        <img
+                        <BenchPhoto
                           src={`/api/photos/${item.photo}`}
                           alt="Part preview"
                         />

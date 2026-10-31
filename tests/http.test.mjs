@@ -16,7 +16,18 @@ test(
     let chatBody,
       failChat = false,
       thinkingOnly = false,
-      slowReply = false;
+      slowReply = false,
+      actionPlan = {
+        intent: "chat",
+        operation: null,
+        item: null,
+        destination: null,
+        source: null,
+        quantity: null,
+        all: false,
+      },
+      planCalls = 0,
+      photoRelevance = "bench_item";
     const mock = createServer(async (req, res) => {
       res.setHeader("Content-Type", "application/json");
       if (req.url === "/api/tags")
@@ -31,6 +42,21 @@ test(
         let body = "";
         for await (const chunk of req) body += chunk;
         chatBody = JSON.parse(body);
+        if (chatBody.format?.properties?.intent) {
+          planCalls++;
+          return res.end(
+            JSON.stringify({
+              message: {
+                content:
+                  typeof actionPlan === "string"
+                    ? actionPlan
+                    : JSON.stringify(actionPlan),
+              },
+              done: true,
+              done_reason: "stop",
+            }) + "\n",
+          );
+        }
         if (chatBody.format?.properties?.regions)
           return res.end(
             JSON.stringify({
@@ -83,6 +109,9 @@ test(
               message: {
                 content: JSON.stringify({
                   candidateName: "Synthetic power bank",
+                  ...(chatBody.format?.properties?.benchRelevance
+                    ? { benchRelevance: photoRelevance }
+                    : {}),
                   markings:
                     "MODEL TEST-703955\n10000 mAh / 37 Wh\n5 V ⎓ 2 A in\n2.1 A out on each port",
                   markingsStatus: "readable",
@@ -488,10 +517,18 @@ test(
         404,
       );
       await stop();
-      cookie = "";
       await start();
+      // A server restart invalidates the open browser's cookie, including photos.
+      assert.equal((await call(`/photos/${photo.body.photo}`)).status, 401);
       const next = await call("/session");
       cookie = next.headers.get("set-cookie").split(";")[0];
+      const restoredPhoto = await fetch(
+        `http://127.0.0.1:${port}/api/photos/${photo.body.photo}?photoRetry=1`,
+        { headers: { Cookie: cookie } },
+      );
+      assert.equal(restoredPhoto.status, 200);
+      assert.match(restoredPhoto.headers.get("content-type"), /image\/png/);
+      assert.ok((await restoredPhoto.arrayBuffer()).byteLength > 0);
       assert.equal((await call("/state")).body.items.length, 0);
       assert.equal(
         (await call("/state")).body.removedItems[0].name,
@@ -813,6 +850,111 @@ test(
       // Photo chat prepares a persistent card; committing it is an explicit,
       // authenticated, idempotent application operation, not model output.
       const beforeCard = (await call("/state")).body.items.length;
+      const actionsBeforeIrrelevant = (await call("/state")).body.chatActions
+        .length;
+      for (const relevance of ["off_topic", "unclear"]) {
+        photoRelevance = relevance;
+        const rejected = await call("/chat", {
+          message: "Prepare a Stash card from this photo.",
+          photo: photo.body.photo,
+          conversationId: freshChat.id,
+          requestId: randomUUID(),
+        });
+        assert.equal(rejected.status, 200);
+        assert.equal(rejected.body.photoReviewOutcome, relevance);
+        assert.equal(rejected.body.action, undefined);
+        assert.equal(rejected.body.proposal, undefined);
+        assert.equal((await call("/state")).body.items.length, beforeCard);
+        assert.equal(
+          (await call("/state")).body.chatActions.length,
+          actionsBeforeIrrelevant,
+        );
+      }
+      photoRelevance = "bench_item";
+      // Existing stock additions never reach image inference or allocations.
+      const sled = await call("/items", {
+        ...item,
+        name: "small stepper-type sled motor with lead screw",
+        quantity: 1,
+        photo: null,
+      });
+      const stockRequest = {
+        message:
+          "I also grabbed another small stepper-type sled motor, can you pls add one to our current stash?",
+        conversationId: freshChat.id,
+        requestId: randomUUID(),
+      };
+      const stockCard = await call("/chat", stockRequest);
+      assert.equal(stockCard.body.action.kind, "stock");
+      assert.equal(stockCard.body.action.draft.itemId, sled.body.id);
+      assert.equal(stockCard.body.action.draft.quantity, 1);
+      assert.equal(
+        (await call("/state")).body.items.find((i) => i.id === sled.body.id)
+          .quantity,
+        1,
+      );
+      const stockSaved = await call(
+        `/chat-actions/${stockCard.body.action.id}/commit`,
+        stockCard.body.action.draft,
+      );
+      assert.equal(stockSaved.status, 200);
+      assert.match(stockSaved.body.receipt, /Total: 1 → 2/);
+      assert.equal(
+        (await call("/chat", stockRequest)).body.action.status,
+        "completed",
+      );
+      assert.equal(
+        (await call("/state")).body.items.find((i) => i.id === sled.body.id)
+          .quantity,
+        2,
+      );
+      // Remove only this synthetic fixture to retain subsequent count assertions.
+      await call(`/items/${sled.body.id}`, undefined, "DELETE");
+      // An ordinary photo question followed by an inventory request must create
+      // a new Stash draft, never a form requiring that unsaved item to exist.
+      const dvdChat = await call("/conversations", {});
+      await call("/chat", {
+        message: "What's this?",
+        photo: photo.body.photo,
+        conversationId: dvdChat.body.id,
+      });
+      const mistakenParts = await call("/chat", {
+        message: "Open project parts",
+        manageParts: true,
+        conversationId: dvdChat.body.id,
+        requestId: randomUUID(),
+      });
+      const dvdRequest = {
+        message:
+          "Can you please add the dvd rw drive to inventory? I plan to pull motors and such from it.",
+        conversationId: dvdChat.body.id,
+        requestId: randomUUID(),
+      };
+      const dvdDraft = await call("/chat", dvdRequest);
+      assert.equal(dvdDraft.status, 200);
+      assert.equal(dvdDraft.body.action.kind, "stash");
+      assert.equal(dvdDraft.body.action.status, "draft");
+      assert.equal(dvdDraft.body.action.photo, photo.body.photo);
+      assert.equal(dvdDraft.body.action.draft.kind, "donor");
+      assert.equal((await call("/state")).body.items.length, beforeCard);
+      assert.equal(
+        (await call("/chat", dvdRequest)).body.action.id,
+        dvdDraft.body.action.id,
+      );
+      assert.equal(
+        (await call("/state")).body.chatActions.find(
+          (a) => a.id === mistakenParts.body.action.id,
+        ).status,
+        "cancelled",
+      );
+      const otherChat = await call("/conversations", {});
+      const noPhoto = await call("/chat", {
+        message: "Add this to inventory",
+        conversationId: otherChat.body.id,
+        requestId: randomUUID(),
+      });
+      assert.equal(noPhoto.body.action, null);
+      assert.match(noPhoto.body.answer, /Attach a photo/);
       const cardRequest = {
         message: "Please add this to Stash",
         photo: photo.body.photo,
@@ -846,6 +988,24 @@ test(
       assert.equal(photoFind.quantity, 3);
       assert.equal(photoFind.photoReview.photo, photo.body.photo);
       assert.equal(photoFind.identity, "unresolved");
+      const imageAssignment = await call("/chat", {
+        message: "Reserve 3 Edited photo find for this project",
+        photo: photo.body.photo,
+        conversationId: freshChat.id,
+        requestId: randomUUID(),
+      });
+      assert.equal(imageAssignment.status, 200);
+      assert.equal(imageAssignment.body.action, undefined);
+      assert.equal(
+        (await call("/state")).body.items.find((i) => i.id === photoFind.id)
+          .available,
+        3,
+      );
+      assert.ok(
+        chatBody.messages[0].content.includes(
+          "Sent user photos have a Prepare Stash card button",
+        ),
+      );
       failChat = true; // Reservation changes do not depend on generative claims.
       const addWithoutCount = await call("/chat", {
         message: "Can you add the finds we just added to this project please?",
@@ -911,6 +1071,115 @@ test(
           .status,
         400,
       );
+      {
+        // Semantic fallback proposes a card; conversation replies finish the
+        // persisted pending request without invoking the model again.
+        const plannerProject = await call("/projects", {
+          name: "Understanding tests",
+          goal: "Synthetic",
+          notes: "",
+          nextAction: "",
+          status: "planning",
+          startConversation: true,
+        });
+        const plannerConversation = (
+          await call("/state")
+        ).body.conversations.find(
+          (c) => c.projectId === plannerProject.body.id,
+        ).id;
+        const beforeProposalCalls = planCalls;
+        const spare = await call("/items", {
+          ...item,
+          name: "Green motor",
+          quantity: 5,
+          photo: null,
+        });
+        actionPlan = {
+          intent: "reservation",
+          operation: "reserve",
+          item: "Green motor",
+          destination: "@current",
+          source: null,
+          quantity: null,
+          all: false,
+        };
+        const proposed = await call("/chat", {
+          message: "I'd like these green motors earmarked for this build",
+          conversationId: plannerConversation,
+          requestId: randomUUID(),
+        });
+        assert.equal(proposed.body.action.status, "draft");
+        assert.equal(planCalls, beforeProposalCalls + 1);
+        assert.match(proposed.body.answer, /how many/i);
+        assert.equal(
+          (await call("/state")).body.items.find((i) => i.id === spare.body.id)
+            .available,
+          5,
+        );
+        const beforeFollowup = planCalls;
+        const followupRequest = {
+          message: "all three",
+          conversationId: plannerConversation,
+          requestId: randomUUID(),
+        };
+        const followed = await call("/chat", followupRequest);
+        assert.equal(followed.body.action.status, "completed");
+        assert.match(followed.body.answer, /Reserved 3/);
+        assert.equal(planCalls, beforeFollowup);
+        assert.equal(
+          (await call("/chat", followupRequest)).body.action.id,
+          followed.body.action.id,
+        );
+        assert.equal(
+          (
+            await call(
+              "/chat-actions/" + proposed.body.action.id + "/commit",
+              proposed.body.action.draft,
+            )
+          ).status,
+          400,
+        );
+        assert.equal(
+          (await call("/state")).body.items.find((i) => i.id === spare.body.id)
+            .available,
+          2,
+        );
+        // Insufficient stock is a useful pending card, not an unsaved refusal.
+        const tooMany = await call("/chat", {
+          message: "Reserve 9 Green motor for this project",
+          conversationId: plannerConversation,
+          requestId: randomUUID(),
+        });
+        assert.equal(tooMany.body.action.status, "draft");
+        assert.match(tooMany.body.answer, /Not enough available/);
+        const corrected = await call("/chat", {
+          message: "Actually, one please.",
+          conversationId: plannerConversation,
+          requestId: randomUUID(),
+        });
+        assert.equal(corrected.body.action.status, "completed");
+        assert.match(corrected.body.answer, /Reserved 1/);
+        // A failed planner cannot fabricate a stock change or leave no way forward.
+        actionPlan = "invalid model output";
+        const malformed = await call("/chat", {
+          message: "Please earmark the remaining motor for Juno",
+          conversationId: plannerConversation,
+          requestId: randomUUID(),
+        });
+        assert.equal(malformed.body.action.status, "draft");
+        assert.match(malformed.body.answer, /couldn't reliably interpret/);
+        const cancelled = await call("/chat", {
+          message: "never mind",
+          conversationId: plannerConversation,
+          requestId: randomUUID(),
+        });
+        assert.equal(cancelled.body.action.status, "cancelled");
+        assert.equal(
+          (await call("/state")).body.items.find((i) => i.id === spare.body.id)
+            .available,
+          1,
+        );
+      }
     } finally {
       await stop();
       await new Promise((r) => mock.close(r));

@@ -1,6 +1,8 @@
+import { BenchPhoto } from "./bench-photo";
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ArrowDown, Hammer, MessageSquare, Plus, Sparkles } from "lucide-react";
 import "./conversation-workspace.css";
+import { ChatMarkdown } from "./chat-markdown";
 
 export type Conversation = {
   id: string;
@@ -299,6 +301,8 @@ export function ConversationFeed({
   layout,
   onStop,
   renderAction,
+  onPreparePhoto,
+  photoActionDisabled,
 }: {
   conversationId: string | null;
   messages: ChatMessage[];
@@ -312,6 +316,8 @@ export function ConversationFeed({
   layout: string;
   onStop: () => void;
   renderAction?: (id: string) => React.ReactNode;
+  onPreparePhoto?: (photo: string) => void;
+  photoActionDisabled?: boolean;
 }) {
   const feed = useRef<HTMLDivElement>(null);
   const follow = useRef(true);
@@ -424,13 +430,27 @@ export function ConversationFeed({
             <span className="message-author">
               {m.role === "user" ? "YOU" : "BENCHMATE"}
             </span>
-            {!m.actionId && <p>{m.content}</p>}
+            {!m.actionId &&
+              (m.role === "assistant" ? (
+                <ChatMarkdown content={m.content} />
+              ) : (
+                <p>{m.content}</p>
+              ))}
             {m.photo && (
-              <img
+              <BenchPhoto
                 className="chat-photo"
                 src={`/api/photos/${m.photo}`}
                 alt="Photo attached to this message"
               />
+            )}
+            {m.photo && m.role === "user" && !legacy && onPreparePhoto && (
+              <button
+                className="secondary"
+                disabled={photoActionDisabled}
+                onClick={() => onPreparePhoto(m.photo!)}
+              >
+                Prepare Stash card
+              </button>
             )}
             {m.actionId && renderAction?.(m.actionId)}
           </div>
@@ -447,17 +467,19 @@ export function ConversationFeed({
             aria-label="Answer in progress"
           >
             <span className="message-author">BENCHMATE · IN PROGRESS</span>
-            <p>{liveAnswer}</p>
+            <ChatMarkdown content={liveAnswer} />
           </div>
         )}
         {busy && (
           <div className="thinking">
             <span role="status">
-              {phase === "thinking"
-                ? "Thinking"
-                : phase === "answering"
-                  ? "Writing a reply"
-                  : "Preparing context"}
+              {phase === "interpreting"
+                ? "Understanding your request"
+                : phase === "thinking"
+                  ? "Thinking"
+                  : phase === "answering"
+                    ? "Writing a reply"
+                    : "Preparing context"}
               … {elapsed}s
             </span>
             <button onClick={onStop}>Stop</button>

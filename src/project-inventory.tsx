@@ -1,3 +1,4 @@
+import { BenchPhoto } from "./bench-photo";
 import { useEffect, useRef } from "react";
 import { Box, X } from "lucide-react";
 import "./project-inventory.css";
@@ -129,7 +130,7 @@ export function ProjectInventory({
                   }}
                 >
                   {row.item?.photo ? (
-                    <img src={`/api/photos/${row.item.photo}`} alt="" />
+                    <BenchPhoto src={`/api/photos/${row.item.photo}`} alt="" />
                   ) : (
                     <span className="project-inventory-icon">
                       <Box size={20} />

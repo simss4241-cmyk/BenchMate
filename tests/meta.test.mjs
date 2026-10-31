@@ -77,6 +77,24 @@ test("missing key makes no request and upstream errors do not expose provider bo
     assert.equal(calls, 1);
   }
 });
+
+test("structured action understanding uses its smaller token limit", async () => {
+  let sent;
+  const meta = createMeta({
+    key: () => fake,
+    fetchImpl: async (u, o) => {
+      sent = JSON.parse(o.body);
+      return sse("{}");
+    },
+  });
+  await meta.generate({
+    model: "muse-spark-1.3",
+    messages: [{ role: "user", content: "Synthetic action request" }],
+    responseMode: "quick",
+    maxTokens: 768,
+  });
+  assert.equal(sent.max_tokens, 768);
+});
 test("SSE stream joins split UTF-8 records and rejects incomplete or filtered replies", async () => {
   const text = await sse("µA test").text(),
     bytes = new TextEncoder().encode(text);

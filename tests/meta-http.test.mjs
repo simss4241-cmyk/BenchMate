@@ -38,15 +38,30 @@ test(
         let raw = "";
         for await (const chunk of req) raw += chunk;
         sent = JSON.parse(raw);
-        const answer = sent.response_format
+        const answer = sent.response_format?.json_schema?.schema?.properties
+          ?.intent
           ? JSON.stringify({
-              candidateName: "Synthetic label",
-              markings: "MODEL QA",
-              markingsStatus: "readable",
-              evidence: "Test fixture label.",
-              uncertainty: "Not actual hardware.",
+              intent: "chat",
+              operation: null,
+              item: null,
+              destination: null,
+              source: null,
+              quantity: null,
+              all: false,
             })
-          : "Synthetic hosted reply.";
+          : sent.response_format
+            ? JSON.stringify({
+                candidateName: "Synthetic label",
+                ...(sent.response_format?.json_schema?.schema?.properties
+                  ?.benchRelevance
+                  ? { benchRelevance: "bench_item" }
+                  : {}),
+                markings: "MODEL QA",
+                markingsStatus: "readable",
+                evidence: "Test fixture label.",
+                uncertainty: "Not actual hardware.",
+              })
+            : "Synthetic hosted reply.";
         res.setHeader("Content-Type", "text/event-stream");
         res.write(
           `data: ${JSON.stringify({ choices: [{ delta: { content: answer }, finish_reason: null }] })}\n\n`,
@@ -203,6 +218,16 @@ test(
       assert.equal((await call("/models")).body.selected, "muse-wonder-1.0");
       const envResponse = await fetch(`http://127.0.0.1:${port}/.env`);
       assert.ok(!(await envResponse.text()).includes(fake));
+      const beforeTwoPass = metaCalls;
+      const advice = await call("/chat", {
+        message: "Could I use a motor for this build?",
+        provider: "meta",
+        model: "muse-wonder-1.0",
+      });
+      assert.equal(advice.status, 200);
+      assert.equal(advice.body.answer, "Synthetic hosted reply.");
+      assert.equal(advice.body.usage.totalTokens, 60);
+      assert.equal(metaCalls, beforeTwoPass + 2);
       assert.ok(!output.includes(fake));
     } finally {
       await stop();

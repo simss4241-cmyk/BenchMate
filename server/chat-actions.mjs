@@ -5,13 +5,13 @@ const normalize = (s) =>
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, " ")
     .trim();
-function unique(records, phrase) {
+export function matchingRecords(records, phrase) {
   const singular = (w) =>
     w.length > 3 && w.endsWith("s") && !w.endsWith("ss") ? w.slice(0, -1) : w;
   const words = normalize(phrase)
     .split(" ")
     .filter((w) => !["the", "project", "please", "my"].includes(w));
-  if (!words.length) return null;
+  if (!words.length) return [];
   const exact = records.filter((r) => normalize(r.name) === words.join(" "));
   const matches = exact.length
     ? exact
@@ -20,6 +20,10 @@ function unique(records, phrase) {
           normalize(r.name).split(" ").map(singular).includes(singular(w)),
         ),
       );
+  return matches;
+}
+export function unique(records, phrase) {
+  const matches = matchingRecords(records, phrase);
   return matches.length === 1 ? matches[0].id : null;
 }
 export function reservationCommand(
@@ -28,6 +32,7 @@ export function reservationCommand(
   conversation,
   selectedId,
 ) {
+  if (requestsStash(message)) return null;
   if (
     /\b(?:example|hypothetical|pretend|imagine|don['’]?t|do not|shouldn['’]?t|what if|how (?:do|would|can))\b/i.test(
       message,
@@ -138,6 +143,10 @@ export function reservationCommand(
       ? conversation.projectId
       : unique(snapshot.projects, p);
   draft.itemId = itemId || "";
+  if (!itemId && !reference && !justAdded)
+    draft.candidateItemIds = matchingRecords(snapshot.items, phrase).map(
+      (i) => i.id,
+    );
   if (operation === "reserve") draft.projectId = projectId(parts[2]) || "";
   else {
     draft.sourceProjectId = projectId(parts[2]) || "";
@@ -158,6 +167,7 @@ export function reservationCommand(
   if (all && quantity === null && operation === "reserve")
     quantity = snapshot.items.find((i) => i.id === itemId)?.available || null;
   draft.quantity = quantity || 1;
+  draft.quantityKnown = quantity !== null;
   draft.expectedUpdatedAt = snapshot.items.find(
     (i) => i.id === itemId,
   )?.updatedAt;
@@ -173,7 +183,21 @@ export function reservationCommand(
     ),
   };
 }
-export const requestsStash = (message) =>
-  /^(?:(?:can|could|would) you\s+)?(?:please\s+)?(?:prepare\b[\s\S]*\bstash card\b|(?:add|save|put)\b[\s\S]*\b(?:to|into|in)\s+(?:(?:the|my)\s+)?stash(?:\s+please)?[.!?]?$)/i.test(
-    message.trim(),
+export const requestsStash = (message) => {
+  const request = message.trim().split(/(?<=[.!?])\s+/)[0];
+  return /^(?:(?:can|could|would) you\s+)?(?:please\s+)?(?:prepare\b[\s\S]*\bstash card\b|(?:add|save|put)\b[\s\S]*\b(?:to|into|in)\s+(?:(?:the|my)\s+)?(?:stash|inventory|stock)(?:\s+please)?[.!?]?$)/i.test(
+    request,
   );
+};
+
+// A follow-up may use only a recent user photo in this exact conversation.
+// Never use another project's photo or a model's claimed image identity.
+export function recentStashPhoto(snapshot, conversation) {
+  return (
+    snapshot.messages
+      .filter((m) => m.conversationId === conversation.id)
+      .slice(-6)
+      .filter((m) => m.role === "user" && m.photo)
+      .at(-1)?.photo || null
+  );
+}

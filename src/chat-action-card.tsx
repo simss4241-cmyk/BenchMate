@@ -1,16 +1,20 @@
+import { BenchPhoto } from "./bench-photo";
 import { useEffect, useRef, useState } from "react";
 import "./chat-action-card.css";
 
 export type ChatAction = {
   id: string;
-  kind: "stash" | "reservation";
+  kind: "stash" | "reservation" | "stock";
   status: "draft" | "completed" | "cancelled";
   photo?: string;
   receipt?: string;
   itemId?: string;
+  prompt?: string;
+  supersededBy?: string;
   draft: {
     name?: string;
     quantity: number;
+    quantityKnown?: boolean;
     kind?: "part" | "donor" | "tool";
     condition?: string;
     location?: string;
@@ -24,6 +28,7 @@ export type ChatAction = {
     allocationId?: string;
     expectedUpdatedAt?: string;
     expectedQuantity?: number;
+    candidateItemIds?: string[];
   };
 };
 type ItemSummary = {
@@ -122,7 +127,11 @@ export function ChatActionCard({
     );
   if (action.status === "cancelled")
     return (
-      <p className="chat-action">Draft dismissed. No inventory changed.</p>
+      <p className="chat-action">
+        {action.supersededBy
+          ? "Continued in a newer action below."
+          : action.prompt || "Draft dismissed. No inventory changed."}
+      </p>
     );
   const duplicates =
     action.kind === "stash"
@@ -141,7 +150,11 @@ export function ChatActionCard({
     <form
       className="chat-action"
       aria-label={
-        action.kind === "stash" ? "Review Stash card" : "Review project parts"
+        action.kind === "stash"
+          ? "Review Stash card"
+          : action.kind === "stock"
+            ? "Review stock addition"
+            : "Review project parts"
       }
       onSubmit={(e) => {
         e.preventDefault();
@@ -151,13 +164,16 @@ export function ChatActionCard({
       <p className="eyebrow">
         {action.kind === "stash"
           ? "STASH DRAFT · REVIEW BEFORE ADDING"
-          : "PROJECT PARTS · REVIEW ACTION"}
+          : action.kind === "stock"
+            ? "STASH STOCK · REVIEW ADDITION"
+            : "PROJECT PARTS · REVIEW ACTION"}
       </p>
+      {action.prompt && <p className="chat-action-prompt">{action.prompt}</p>}
       <fieldset disabled={busy}>
         {action.kind === "stash" ? (
           <>
             {action.photo && (
-              <img
+              <BenchPhoto
                 className="chat-photo"
                 src={`/api/photos/${action.photo}`}
                 alt="Photo for this Stash draft"
@@ -245,6 +261,50 @@ export function ChatActionCard({
               </div>
             )}
           </>
+        ) : action.kind === "stock" ? (
+          <>
+            <label>
+              Existing Stash item
+              <select
+                required
+                value={draft.itemId}
+                onChange={(e) => {
+                  const item = items.find((i) => i.id === e.target.value);
+                  patch({
+                    itemId: e.target.value,
+                    expectedUpdatedAt: item?.updatedAt,
+                    expectedQuantity: item?.quantity,
+                  });
+                }}
+              >
+                <option value="">Choose an item</option>
+                {items
+                  .filter(
+                    (i) =>
+                      !draft.candidateItemIds?.length ||
+                      draft.candidateItemIds.includes(i.id),
+                  )
+                  .map((i) => (
+                    <option key={i.id} value={i.id}>
+                      {i.name} · {i.quantity} recorded
+                    </option>
+                  ))}
+              </select>
+            </label>
+            <p>
+              Total stock:{" "}
+              <strong>
+                {draft.expectedQuantity ?? "Choose an item"} →{" "}
+                {draft.expectedQuantity === undefined
+                  ? "—"
+                  : draft.expectedQuantity + (draft.quantity || 0)}
+              </strong>
+            </p>
+            <p>
+              Adds newly acquired units to this record. Existing reservations
+              remain unchanged. The added units must match this untested item.
+            </p>
+          </>
         ) : (
           <>
             <label>
@@ -281,13 +341,29 @@ export function ChatActionCard({
                 }
               >
                 <option value="">Choose an item</option>
-                {items.map((i) => (
-                  <option key={i.id} value={i.id}>
-                    {i.name} · {i.available} available
-                  </option>
-                ))}
+                {items
+                  .filter(
+                    (i) =>
+                      !draft.candidateItemIds?.length ||
+                      draft.candidateItemIds.includes(i.id) ||
+                      draft.itemId === i.id,
+                  )
+                  .map((i) => (
+                    <option key={i.id} value={i.id}>
+                      {i.name} · {i.available} available
+                    </option>
+                  ))}
               </select>
             </label>
+            {!!draft.candidateItemIds?.length && (
+              <button
+                className="text-button"
+                type="button"
+                onClick={() => patch({ candidateItemIds: [] })}
+              >
+                Show all Stash items
+              </button>
+            )}
             {draft.operation !== "reserve" && (
               <label>
                 From reservation
@@ -336,21 +412,30 @@ export function ChatActionCard({
           </>
         )}
         <label>
-          Quantity
+          {action.kind === "stock" ? "Additional units" : "Quantity"}
           <input
             type="number"
             required
             min={1}
             max={100000}
             step={1}
-            value={draft.quantity}
-            onChange={(e) => patch({ quantity: Number(e.target.value) })}
+            value={
+              action.kind === "reservation" && draft.quantityKnown === false
+                ? ""
+                : draft.quantity
+            }
+            onChange={(e) =>
+              patch({
+                quantity: Number(e.target.value),
+                quantityKnown: e.target.value !== "",
+              })
+            }
           />
         </label>
         {error && (
           <div role="alert">
             <p>{error}</p>
-            {action.kind === "reservation" && (
+            {action.kind !== "stash" && (
               <button
                 type="button"
                 className="secondary"
@@ -379,7 +464,9 @@ export function ChatActionCard({
               ? "Saving…"
               : action.kind === "stash"
                 ? "Add to Stash"
-                : "Apply parts change"}
+                : action.kind === "stock"
+                  ? "Add to existing stock"
+                  : "Apply parts change"}
           </button>
           <button
             className="secondary"

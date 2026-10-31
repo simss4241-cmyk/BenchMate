@@ -86,6 +86,7 @@ export function createMeta({
       signal,
       onProgress,
       imageMime = "image/jpeg",
+      maxTokens = 4096,
     }) {
       if (!META_MODELS.includes(model))
         throw new Error("Choose a supported Standard-mode Meta model.");
@@ -110,7 +111,7 @@ export function createMeta({
           model,
           messages: input,
           stream: true,
-          max_tokens: 4096,
+          max_tokens: Math.max(1, Math.min(4096, maxTokens)),
           reasoning_effort: responseMode === "quick" ? "minimal" : "low",
           ...(schema
             ? {

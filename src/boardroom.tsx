@@ -1,3 +1,4 @@
+import { BenchPhoto } from "./bench-photo";
 import React, { useEffect, useRef, useState } from "react";
 import {
   CircuitBoard,
@@ -463,7 +464,7 @@ export function Boardroom({
                 onClick={() => open(b)}
               >
                 <div className="br-board-photo">
-                  <img
+                  <BenchPhoto
                     src={photoUrl(b.photos[0])}
                     alt={b.name}
                     loading="lazy"
@@ -606,7 +607,7 @@ export function Boardroom({
                       setDraw(false);
                     }}
                   >
-                    <img src={photoUrl(p)} alt={`Photo ${i + 1}`} />
+                    <BenchPhoto src={photoUrl(p)} alt={`Photo ${i + 1}`} />
                   </button>
                 ))}
               </div>
@@ -826,7 +827,7 @@ export function Boardroom({
                         setDrawing(null);
                       }}
                     >
-                      <img
+                      <BenchPhoto
                         src={photoUrl(photo)}
                         alt={`${draft.name || "Board"}, photo ${photoIndex + 1}`}
                         draggable={false}
