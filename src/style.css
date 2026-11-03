@@ -2424,11 +2424,6 @@ p {
   color: #a9c28a !important;
   margin-bottom: 9px;
 }
-.model-box > #provider {
-  margin: 0 0 9px;
-  font-size: 10px;
-  border-color: #68784c;
-}
 .model-heading > span {
   font-size: 7px;
 }
@@ -2438,11 +2433,6 @@ p {
 @media (max-width: 640px) {
   .sidebar-bottom {
     top: 10px;
-  }
-  .model-box > #provider {
-    font-size: 8px;
-    margin-bottom: 3px;
-    padding: 4px 2px;
   }
   .model-box .provider-error {
     display: none;

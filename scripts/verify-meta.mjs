@@ -11,7 +11,6 @@ const child = spawn(process.execPath, ["server/index.mjs", "--production"], {
     ...process.env,
     PORT: "4319",
     BENCHMATE_DATA: temp,
-    BENCHMATE_PROVIDER: "meta",
     BENCHMATE_SKIP_ENV: "0",
     BENCHMATE_TEST_MODE: "0",
   },

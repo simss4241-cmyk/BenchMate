@@ -1,5 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
+import { partsPlanSchema } from "./project-parts.mjs";
 
 export function openStore(path) {
   const db = new DatabaseSync(path);
@@ -13,6 +14,8 @@ export function openStore(path) {
     CREATE TABLE IF NOT EXISTS conversations(id TEXT PRIMARY KEY, body TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS chat_actions(id TEXT PRIMARY KEY, body TEXT NOT NULL);`);
+  // Retire only obsolete provider settings; inventory and history are untouched.
+  db.prepare("DELETE FROM settings WHERE key IN ('provider', 'model')").run();
   for (const column of ["actionId", "photo"])
     if (
       !db
@@ -441,6 +444,8 @@ export function openStore(path) {
       return transaction(() => {
         const row = db.prepare("SELECT body FROM boards WHERE id=?").get(id);
         const previous = row ? JSON.parse(row.body) : null;
+        if (previous?.removedAt)
+          throw new Error("Restore this board before editing it.");
         if (previous && input.expectedUpdatedAt !== previous.updatedAt)
           throw new Error("This board changed. Reopen it before saving.");
         if (input.linkedItemId) {
@@ -503,6 +508,35 @@ export function openStore(path) {
         return board;
       });
     },
+    setBoardRemoved(id, removed, expectedUpdatedAt) {
+      return transaction(() => {
+        const row = db.prepare("SELECT body FROM boards WHERE id=?").get(id);
+        if (!row) throw new Error("Board not found.");
+        const board = JSON.parse(row.body);
+        if (!!board.removedAt === removed) return board;
+        if (board.updatedAt !== expectedUpdatedAt)
+          throw new Error(
+            "This board changed. Reopen it before removing or restoring it.",
+          );
+        const at = new Date(
+          Math.max(Date.now(), (Date.parse(board.updatedAt) || 0) + 1),
+        ).toISOString();
+        const next = {
+          ...board,
+          removedAt: removed ? at : undefined,
+          updatedAt: at,
+        };
+        db.prepare("UPDATE boards SET body=? WHERE id=?").run(
+          JSON.stringify(next),
+          id,
+        );
+        event(removed ? "board.removed" : "board.restored", {
+          boardId: id,
+          name: board.name,
+        });
+        return next;
+      });
+    },
     recoverBoard(
       boardId,
       componentId,
@@ -516,6 +550,8 @@ export function openStore(path) {
           .get(boardId);
         if (!row) throw new Error("Board not found.");
         const board = JSON.parse(row.body);
+        if (board.removedAt)
+          throw new Error("Restore this board before recording a recovery.");
         if (board.updatedAt !== expectedUpdatedAt)
           throw new Error("This board changed. Reopen it before recovery.");
         const component = board.components.find((c) => c.id === componentId);
@@ -609,7 +645,8 @@ export function openStore(path) {
           .filter((item) => item.removedAt)
           .map((item) => ({ ...item, available: 0 })),
         projects: bodies("projects"),
-        boards: bodies("boards"),
+        boards: bodies("boards").filter((b) => !b.removedAt),
+        removedBoards: bodies("boards").filter((b) => b.removedAt),
         allocations: db.prepare("SELECT * FROM allocations").all(),
         events: db
           .prepare("SELECT * FROM events ORDER BY at DESC LIMIT 30")
@@ -828,7 +865,18 @@ export function openStore(path) {
             (conversation.projectId && conversation.projectId !== id))
         )
           throw new Error("Choose an exploration without an existing project.");
-        const project = { ...input, id, updatedAt: new Date().toISOString() };
+        const previousRow = db
+          .prepare("SELECT body FROM projects WHERE id=?")
+          .get(id);
+        const previous = previousRow ? JSON.parse(previousRow.body) : {};
+        const project = {
+          ...input,
+          suggestedParts: previous.suggestedParts,
+          id,
+          updatedAt: new Date(
+            Math.max(Date.now(), (Date.parse(previous.updatedAt) || 0) + 1),
+          ).toISOString(),
+        };
         db.prepare(
           "INSERT INTO projects VALUES(?,?) ON CONFLICT(id) DO UPDATE SET body=excluded.body",
         ).run(id, JSON.stringify(project));
@@ -859,6 +907,48 @@ export function openStore(path) {
           );
         }
         return project;
+      });
+    },
+    saveProjectParts(id, plan, expectedUpdatedAt) {
+      return transaction(() => {
+        const row = db.prepare("SELECT body FROM projects WHERE id=?").get(id);
+        if (!row) throw new Error("Project not found.");
+        const project = JSON.parse(row.body);
+        if (project.updatedAt !== expectedUpdatedAt)
+          throw new Error(
+            "This project changed. Reload the saved list before applying your draft.",
+          );
+        const parsed = partsPlanSchema.parse(plan);
+        for (const part of parsed.rows)
+          if (part.itemId) {
+            const item = available(part.itemId).item;
+            if (
+              item.removedAt ||
+              item.dismantledAt ||
+              item.kind !== "part" ||
+              ["damaged", "consumed"].includes(item.condition)
+            )
+              throw new Error(
+                "A candidate Stash item is no longer available as a part. Clear or replace its match.",
+              );
+          }
+        const next = {
+          ...project,
+          suggestedParts: parsed,
+          updatedAt: new Date(
+            Math.max(Date.now(), Date.parse(project.updatedAt) + 1),
+          ).toISOString(),
+        };
+        db.prepare("UPDATE projects SET body=? WHERE id=?").run(
+          JSON.stringify(next),
+          id,
+        );
+        event("project.parts_list.saved", {
+          projectId: id,
+          name: project.name,
+          quantity: parsed.rows.length,
+        });
+        return next;
       });
     },
     removeItem(id) {

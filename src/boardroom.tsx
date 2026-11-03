@@ -58,6 +58,7 @@ export type Board = {
   photos: string[];
   components: BoardComponent[];
   updatedAt?: string;
+  removedAt?: string;
   recoveries?: {
     componentId: string;
     itemId: string;
@@ -128,6 +129,7 @@ const newComponent = (photo: string): BoardComponent => ({
 
 export function Boardroom({
   boards,
+  removedBoards = [],
   items,
   model,
   provider,
@@ -140,9 +142,10 @@ export function Boardroom({
   onMappingChange,
 }: {
   boards: Board[];
+  removedBoards?: Board[];
   items: CacheItem[];
   model: string;
-  provider: "meta" | "ollama";
+  provider: "meta";
   modelReady: boolean;
   chatBusy: boolean;
   onRefresh: () => Promise<void>;
@@ -172,6 +175,8 @@ export function Boardroom({
   const [recoveryQty, setRecoveryQty] = useState(1);
   const [location, setLocation] = useState("");
   const [leave, setLeave] = useState(false);
+  const [confirmRemove, setConfirmRemove] = useState(false);
+  const [showRemoved, setShowRemoved] = useState(false);
   const [hovered, setHovered] = useState<string | null>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
   const [canvasSize, setCanvasSize] = useState({ width: 1, height: 1 });
@@ -201,6 +206,7 @@ export function Boardroom({
     return () => observer.disconnect();
   }, [photo, view]);
   const allBoards = () => {
+    setShowRemoved(false);
     setView("boards");
     if (dirty) setLeave(true);
     else {
@@ -227,6 +233,7 @@ export function Boardroom({
       });
   };
   const open = (board: Board) => {
+    setConfirmRemove(false);
     setDraft(structuredClone(board));
     setDirty(false);
     setSelected(null);
@@ -246,6 +253,33 @@ export function Boardroom({
     setRecoveryQty(1);
     setLocation("");
   };
+  async function removeOrRestore(board: Board, restore = false) {
+    if (!board.id) return;
+    setPending(true);
+    setError("");
+    try {
+      await api(
+        `/boards/${board.id}${restore ? "/restore" : ""}`,
+        { expectedUpdatedAt: board.updatedAt },
+        restore ? "POST" : "DELETE",
+      );
+      setShowRemoved(false);
+      setDraft(null);
+      setDirty(false);
+      setProposal(null);
+      setConfirmRemove(false);
+      setNotice(
+        restore
+          ? "Board restored."
+          : "Board moved to Removed boards. Photos, recovered parts and history are preserved.",
+      );
+      await onRefresh();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setPending(false);
+    }
+  }
   async function save() {
     if (!draft) return;
     setPending(true);
@@ -456,44 +490,76 @@ export function Boardroom({
               <Plus size={17} /> Add board
             </button>
           </div>
+          <button
+            className="secondary"
+            disabled={pending}
+            onClick={() => setShowRemoved(!showRemoved)}
+          >
+            {showRemoved
+              ? "All boards"
+              : `Removed boards (${removedBoards.length})`}
+          </button>
           <div className="br-board-grid">
-            {boards.map((b) => (
-              <button
-                key={b.id}
-                className="br-board-card"
-                onClick={() => open(b)}
-              >
-                <div className="br-board-photo">
-                  <BenchPhoto
-                    src={photoUrl(b.photos[0])}
-                    alt={b.name}
-                    loading="lazy"
-                  />
-                  <span>{b.components.length} mapped</span>
-                </div>
-                <div className="br-card-body">
-                  <h3>{b.name}</h3>
-                  <p>
-                    {b.linkedItemId ? (
-                      <>
-                        <Link2 size={13} />{" "}
-                        {items.find((i) => i.id === b.linkedItemId)?.name ||
-                          "Linked Stash item"}
-                      </>
-                    ) : (
-                      "Independent board"
-                    )}
-                  </p>
-                  <small>
-                    {b.photos.length} photo{b.photos.length === 1 ? "" : "s"} ·{" "}
-                    {(b.recoveries || []).reduce((n, r) => n + r.quantity, 0)}{" "}
-                    recovered
-                  </small>
-                </div>
-              </button>
-            ))}
+            {showRemoved
+              ? removedBoards.map((b) => (
+                  <div key={b.id} className="br-board-card">
+                    <div className="br-card-body">
+                      <h3>{b.name}</h3>
+                      <p>Photos and recovery history retained.</p>
+                      <button
+                        className="secondary"
+                        disabled={pending}
+                        onClick={() => void removeOrRestore(b, true)}
+                      >
+                        Restore board
+                      </button>
+                    </div>
+                  </div>
+                ))
+              : boards.map((b) => (
+                  <button
+                    key={b.id}
+                    className="br-board-card"
+                    onClick={() => open(b)}
+                  >
+                    <div className="br-board-photo">
+                      <BenchPhoto
+                        src={photoUrl(b.photos[0])}
+                        alt={b.name}
+                        loading="lazy"
+                      />
+                      <span>{b.components.length} mapped</span>
+                    </div>
+                    <div className="br-card-body">
+                      <h3>{b.name}</h3>
+                      <p>
+                        {b.linkedItemId ? (
+                          <>
+                            <Link2 size={13} />{" "}
+                            {items.find((i) => i.id === b.linkedItemId)?.name ||
+                              "Linked Stash item"}
+                          </>
+                        ) : (
+                          "Independent board"
+                        )}
+                      </p>
+                      <small>
+                        {b.photos.length} photo
+                        {b.photos.length === 1 ? "" : "s"} ·{" "}
+                        {(b.recoveries || []).reduce(
+                          (n, r) => n + r.quantity,
+                          0,
+                        )}{" "}
+                        recovered
+                      </small>
+                    </div>
+                  </button>
+                ))}
           </div>
-          {!boards.length && (
+          {showRemoved && !removedBoards.length && (
+            <p className="br-empty">No removed boards.</p>
+          )}
+          {!showRemoved && !boards.length && (
             <div className="br-empty">
               <CircuitBoard size={52} />
               <h3>A closer look at what you have.</h3>
@@ -526,6 +592,15 @@ export function Boardroom({
                   ? "Saved locally"
                   : "New board"}
             </span>
+            {draft.id && (
+              <button
+                className="secondary"
+                disabled={pending || mapping}
+                onClick={() => setConfirmRemove(!confirmRemove)}
+              >
+                <Trash2 size={16} /> Remove board
+              </button>
+            )}
             <button
               className="primary"
               disabled={
@@ -536,6 +611,30 @@ export function Boardroom({
               <Save size={16} /> {pending ? "Saving…" : "Save board"}
             </button>
           </div>
+          {confirmRemove && (
+            <div className="br-review" role="alert">
+              <p>
+                Move <strong>{draft.name}</strong> to Removed boards? You can
+                restore it later. Photos, recovered parts and project
+                allocations are preserved. A linked Stash record stays in Stash.
+                {dirty ? " Unsaved edits will be discarded." : ""}
+              </p>
+              <button
+                className="secondary"
+                disabled={pending}
+                onClick={() => setConfirmRemove(false)}
+              >
+                Keep board
+              </button>{" "}
+              <button
+                className="secondary"
+                disabled={pending}
+                onClick={() => void removeOrRestore(draft)}
+              >
+                Move to Removed boards
+              </button>
+            </div>
+          )}
           {leave && (
             <div className="br-review" role="alert">
               <p>This board has unsaved changes.</p>
@@ -696,10 +795,8 @@ export function Boardroom({
                 </label>
               </div>
               <p className="quiet-note">
-                {provider === "meta"
-                  ? `Mapping sends this photo to Meta using ${model}.`
-                  : `Mapping uses the selected local model: ${model || "choose a vision model"}.`}{" "}
-                Outlines and identities are candidates for your review.
+                {`Mapping sends this photo to Meta using ${model}.`} Outlines
+                and identities are candidates for your review.
               </p>
               {proposal && (
                 <div className="br-review">
@@ -1407,10 +1504,25 @@ export function Boardroom({
                             setPhotoIndex(b.photos.indexOf(c.photo));
                           }
                           setView("boards");
+                        } else if (
+                          removedBoards.some(
+                            (b) => b.id === i.boardOrigin!.boardId,
+                          )
+                        ) {
+                          setDraft(null);
+                          setShowRemoved(true);
+                          setView("boards");
+                          setNotice(
+                            "The source board is in Removed boards. Restore it to inspect its map.",
+                          );
                         }
                       }}
                     >
-                      View source board
+                      {removedBoards.some(
+                        (b) => b.id === i.boardOrigin!.boardId,
+                      )
+                        ? "View removed source board"
+                        : "View source board"}
                     </button>
                   </div>
                   <div className="br-locations">

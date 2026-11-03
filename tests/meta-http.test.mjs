@@ -8,19 +8,20 @@ import path from "node:path";
 import { once } from "node:events";
 const fake = "synthetic-http-key-not-a-credential";
 test(
-  "Meta HTTP flow: provider switching, streamed photos, errors, and no credential exposure",
+  "Meta HTTP flow: Meta-only enforcement, streamed photos, errors, and no credential exposure",
   { timeout: 60000 },
   async () => {
     let sent,
       auth,
       fail = 0,
       metaCalls = 0,
-      ollamaCalls = 0;
+      localCalls = 0;
     const upstream = createServer(async (req, res) => {
       res.setHeader("Content-Type", "application/json");
       if (req.url === "/api/tags") {
-        ollamaCalls++;
-        return res.end(JSON.stringify({ models: [{ name: "qwen2.5:14b" }] }));
+        localCalls++;
+        res.statusCode = 500;
+        return res.end("{}");
       }
       metaCalls++;
       auth = req.headers.authorization;
@@ -84,7 +85,7 @@ test(
     let child,
       cookie = "",
       output = "";
-    const start = async (key) => {
+    const start = async (key, selected = "muse-spark-1.3") => {
       output = "";
       cookie = "";
       child = spawn(process.execPath, ["server/index.mjs", "--production"], {
@@ -94,10 +95,10 @@ test(
           BENCHMATE_DATA: temp,
           BENCHMATE_SKIP_ENV: "1",
           BENCHMATE_TEST_MODE: "1",
-          BENCHMATE_PROVIDER: "meta",
+          BENCHMATE_PROVIDER: "ollama",
           MODEL_API_KEY: key,
           META_API_KEY: "",
-          META_MODEL: "muse-spark-1.3",
+          META_MODEL: selected,
           BENCHMATE_META_TEST_PORT: String(upstream.address().port),
           BENCHMATE_OLLAMA_PORT: String(upstream.address().port),
         },
@@ -145,7 +146,7 @@ test(
         502,
       );
       assert.equal(metaCalls, 0);
-      assert.equal(ollamaCalls, 0);
+      assert.equal(localCalls, 0);
       await stop();
       await start(fake);
       const catalog = await call("/models");
@@ -186,7 +187,7 @@ test(
       assert.equal((await call("/state")).body.items.length, 0);
       assert.equal((await call("/state")).body.messages.length, 0);
       assert.ok(!wire.includes(fake));
-      assert.equal(ollamaCalls, 0);
+      assert.equal(localCalls, 0);
       await call("/model", { model: "muse-wonder-1.0" }, "PUT");
       assert.equal((await call("/models")).body.selected, "muse-wonder-1.0");
       fail = 429;
@@ -198,23 +199,24 @@ test(
       assert.match(failure.body.error, /rate-limiting/);
       assert.ok(!JSON.stringify(failure).includes(fake));
       assert.equal((await call("/state")).body.messages.length, 0);
-      assert.equal(ollamaCalls, 0);
+      assert.equal(localCalls, 0);
       fail = 0;
-      await call("/provider", { provider: "ollama" }, "PUT");
-      assert.equal((await call("/models")).body.selected, "qwen2.5:14b");
       const before = metaCalls;
       assert.equal(
-        (
-          await call("/chat", {
-            message: "Stale cloud selection",
-            provider: "meta",
-            photo: null,
-          })
-        ).status,
-        502,
+        (await call("/provider", { provider: "ollama" }, "PUT")).status,
+        400,
+      );
+      assert.equal(
+        (await call("/model", { model: "qwen2.5:14b" }, "PUT")).status,
+        400,
+      );
+      assert.equal(
+        (await call("/chat", { message: "Reject local", provider: "ollama" }))
+          .status,
+        400,
       );
       assert.equal(metaCalls, before);
-      await call("/provider", { provider: "meta" }, "PUT");
+      assert.equal(localCalls, 0);
       assert.equal((await call("/models")).body.selected, "muse-wonder-1.0");
       const envResponse = await fetch(`http://127.0.0.1:${port}/.env`);
       assert.ok(!(await envResponse.text()).includes(fake));
@@ -229,6 +231,27 @@ test(
       assert.equal(advice.body.usage.totalTokens, 60);
       assert.equal(metaCalls, beforeTwoPass + 2);
       assert.ok(!output.includes(fake));
+      await stop();
+      // A corrupt saved selection cannot be advertised or sent to the provider.
+      const { DatabaseSync } = await import("node:sqlite");
+      const db = new DatabaseSync(path.join(temp, "benchmate.sqlite"));
+      db.prepare("UPDATE settings SET value=? WHERE key='meta_model'").run(
+        "qwen2.5:14b",
+      );
+      db.close();
+      await start(fake);
+      const invalid = await call("/models");
+      assert.equal(invalid.body.selected, "");
+      assert.ok(!invalid.body.models.includes("qwen2.5:14b"));
+      const beforeInvalid = metaCalls;
+      const rejected = await call("/chat", {
+        message: "Invalid saved selection",
+        photo: null,
+      });
+      assert.equal(rejected.status, 502);
+      assert.match(rejected.body.error, /supported Meta model/);
+      assert.equal(metaCalls, beforeInvalid);
+      assert.equal(localCalls, 0);
     } finally {
       await stop();
       await new Promise((r) => upstream.close(r));

@@ -1,6 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { openStore } from "../server/store.mjs";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 
 const part = {
   name: "Test motor",
@@ -22,6 +25,31 @@ const project = {
   nextAction: "",
   status: "planning",
 };
+test("startup retires legacy provider settings while preserving inventory, history and Meta selection", () => {
+  const temp = mkdtempSync(path.join(tmpdir(), "benchmate-model-migration-"));
+  const file = path.join(temp, "test.sqlite");
+  let store = openStore(file);
+  try {
+    const item = store.saveItem(part),
+      p = store.saveProject(project);
+    store.allocate(item.id, p.id, 1);
+    store.setting("provider", "ollama");
+    store.setting("model", "legacy-local-model");
+    store.setting("meta_model", "muse-wonder-1.0");
+    store.setting("unrelated", "keep");
+    const before = JSON.stringify(store.snapshot());
+    store.db.close();
+    store = openStore(file);
+    assert.equal(store.setting("provider"), undefined);
+    assert.equal(store.setting("model"), undefined);
+    assert.equal(store.setting("meta_model"), "muse-wonder-1.0");
+    assert.equal(store.setting("unrelated"), "keep");
+    assert.equal(JSON.stringify(store.snapshot()), before);
+  } finally {
+    store.db.close();
+    rmSync(temp, { recursive: true, force: true });
+  }
+});
 test("reservations and installation preserve stock; returns restore it exactly once", () => {
   const store = openStore(":memory:");
   try {

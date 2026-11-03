@@ -1,0 +1,79 @@
+.project-parts-plan {
+  border-top: 1px solid var(--line, #465338);
+  margin-top: 24px;
+  padding-top: 18px;
+}
+.project-parts-plan label {
+  display: grid;
+  gap: 7px;
+  margin: 10px 0;
+}
+.project-parts-plan textarea,
+.project-parts-plan input,
+.project-parts-plan select {
+  width: 100%;
+  min-width: 0;
+}
+.suggested-part {
+  border: 1px solid var(--line, #465338);
+  border-radius: 7px;
+  padding: 15px;
+  margin: 12px 0;
+  background: rgba(0, 0, 0, 0.08);
+}
+.suggested-part-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.suggested-part-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(100px, 1fr);
+  gap: 12px;
+}
+.parts-plan-status {
+  color: var(--accent, #cbf575);
+  font-size: 12px;
+}
+.parts-plan-error {
+  color: #ffd19b;
+}
+.project-parts-plan fieldset {
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+.project-parts-plan summary {
+  cursor: pointer;
+}
+.project-parts-plan .chat-action-buttons {
+  flex-wrap: wrap;
+}
+.parts-plan-overview {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 10px 0;
+}
+.parts-plan-scroll {
+  max-height: min(55vh, 520px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  padding-right: 10px;
+}
+.parts-plan-scroll:focus-visible {
+  outline: 2px solid var(--accent, #cbf575);
+  outline-offset: 3px;
+}
+.parts-plan-actions {
+  padding-top: 12px;
+  border-top: 1px solid var(--line, #465338);
+}
+@media (max-width: 600px) {
+  .suggested-part-fields {
+    grid-template-columns: 1fr;
+  }
+}

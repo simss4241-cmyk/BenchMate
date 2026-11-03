@@ -25,7 +25,9 @@ The **Parts Cache** groups matching readable markings for browsing and offers th
 
 After physically removing a component, save the board and use **Record recovery** with the quantity removed and storage location. Recovery atomically records provenance, deducts the on-board quantity, and adds unresolved, untested cache inventory. Recovered cache parts stay out of the main Stash grid, but use the existing inventory ledger for project reservation, installation, returns, edits, history, and export. Linked Stash sources become dismantled and unavailable intact after recovery. Stale writes, duplicate recovery requests, over-recovery, and recovery from allocated sources are rejected. Donor salvage recovery and Boardroom recovery cannot both be used for the same source after either has started.
 
-Boardroom uses the existing Ollama/Meta connection, pairing, photo access controls, generation limits, and explicit hosted-provider selection. Mapping requires a vision-capable model. Real-model localization accuracy must be evaluated on actual board photos; synthetic HTTP tests validate the application flow and inventory boundaries, not recognition quality.
+Boardroom uses Meta Model API with the existing pairing, photo access controls and generation limits. Synthetic HTTP tests validate the application flow and inventory boundaries; they do not establish recognition or localization accuracy on arbitrary boards.
+
+Open a saved board and choose **Remove board** to move its card to **Removed boards**. Removal preserves photos, component maps, recovered parts, allocations and source history; **Restore board** returns it to the overview. Removed boards cannot be edited or used for further recovery until restored. Removing a Boardroom card does not remove a separately linked Stash item or make a dismantled donor available again.
 
 ## Inventory lifecycle
 
@@ -39,7 +41,7 @@ Each salvage tag should include a photo, candidate or confirmed identity, identi
 
 ## Initial implementation direction
 
-BenchMate supports Meta Model API and optional local Ollama inference. Local model performance depends on the installed model and hardware; BenchMate does not reconfigure CPU/GPU placement.
+BenchMate uses Meta Model API exclusively. The backend accepts only the supported Muse Spark/Wonder allowlist; there is no local-provider path or alternate-provider fallback. Inventory and photos remain stored locally.
 
 Store inventory and project state in an application database. Models propose changes through validated application tools; conversation history is not the stock ledger.
 
@@ -51,7 +53,7 @@ Demonstrate the complete photo -> identification review -> inventory -> build su
 
 ## Run the scaffold
 
-Requires Node.js 24+. Use either local Ollama (normally port 11434) or Meta Model API with a backend key.
+Requires Node.js 24+ and your own Meta Model API key configured on the backend.
 
 Double-click **Start-BenchMate.cmd**. It installs missing dependencies, builds the app, starts the server, waits for readiness, and opens the browser. Keep its terminal open. If BenchMate is already running on port 4317, the launcher opens that instance instead.
 
@@ -82,11 +84,11 @@ META_MODEL=muse-spark-1.3
 
 `META_API_KEY` is accepted as an alias. Restart BenchMate after adding or changing the key. The backend loads it; do not use a `VITE_` variable, place it in frontend code, or paste it into the conversation. `.env*` files are ignored except `.env.example`. Never commit your key. Server environment variables take precedence over `.env` values.
 
-Use the sidebar provider selector to choose Meta hosted API or Local Ollama. When no provider has been saved, the app starts on Meta if a key is configured, otherwise Ollama. You can override that initial choice with `BENCHMATE_PROVIDER=meta` or `ollama`; subsequent UI choices are saved. Each provider keeps its own model selection. Meta defaults to `muse-spark-1.3`; available Standard-mode Spark versions and `muse-wonder-1.0` are offered after an authenticated model-list check. If a selected model is unavailable, choose another explicitly; the app does not silently substitute one.
+The sidebar shows Meta Model API and offers supported Muse models after an authenticated model-list check. The default is `muse-spark-1.3`; supported Spark versions and `muse-wonder-1.0` are defined in `server/meta.mjs`. Model selection is saved. Unsupported selections are rejected, and unavailable models require an explicit choice. Missing credentials leave AI disconnected. Old local-provider settings are retired on startup without changing inventory or conversation history.
 
 Hosted mode sends your question, bounded inventory/project context, up to six recent messages from the active conversation, and any selected photo to Meta. Inventory and photos remain stored locally, but these request contents leave the PC. The UI marks hosted mode beside the model selector and composer and notes that free-credit terms may allow product improvement. Cloud calls are made only by the backend to `https://api.meta.ai/v1`; the browser never receives the key. Meta API credentials, configuration errors, and provider error bodies are not returned verbatim to the browser.
 
-Streaming chat and structured photo extraction share the existing edit/review/save workflow. Meta Quick reply uses minimal reasoning; Balanced uses low reasoning. Every generation is capped at 4,096 output/reasoning tokens, which is a per-request bound rather than an account spending limit. No automatic retries or fallback from Ollama to a paid/hosted provider occur. Usage tokens are shown for the last reply when supplied by the provider. Keep using Meta’s dashboard to monitor actual credit usage and billing.
+Streaming chat and structured photo extraction share the existing edit/review/save workflow. Meta Quick reply uses minimal reasoning; Balanced uses low reasoning. Every generation is capped at 4,096 output/reasoning tokens, which is a per-request bound rather than an account spending limit. There are no automatic retries or alternate-provider fallbacks. Usage tokens are shown for the last reply when supplied by the provider. Keep using Meta’s dashboard to monitor actual credit usage and billing.
 
 Synthetic tests never load the real `.env` and route Meta requests to an isolated loopback stub. Explicit live smoke tests use only an empty temporary stash and optional generated test label:
 
@@ -95,18 +97,18 @@ node scripts/verify-meta.mjs
 node scripts/verify-meta.mjs --vision
 ```
 
-See Meta’s [authentication](https://dev.meta.ai/docs/authentication), [chat completion](https://dev.meta.ai/docs/protocols/chat-completions), [image understanding](https://dev.meta.ai/docs/image-understanding), and [structured output](https://dev.meta.ai/docs/structured-output) documentation. The older `verify-live.mjs` remains explicitly Ollama-only, even when a cloud key exists.
+See Meta’s [authentication](https://dev.meta.ai/docs/authentication), [chat completion](https://dev.meta.ai/docs/protocols/chat-completions), [image understanding](https://dev.meta.ai/docs/image-understanding), and [structured output](https://dev.meta.ai/docs/structured-output) documentation.
 
 Open `http://localhost:4317` on the PC. For a phone, use the same home network and the Phone URL printed in the terminal. Enter the eight-digit pairing code from that terminal. The code changes when the server restarts; paired sessions last up to twelve hours and end on restart. Windows Firewall or Wi-Fi client isolation may prevent phone access; no firewall rule is changed by the scaffold. Use this on a trusted home network; remote HTTPS hosting is not configured.
 
-The phone uses its photo picker. Browser camera capture, HTTPS, and installable PWA packaging are not configured yet. Ollama remains on PC loopback; phones communicate with the BenchMate backend. Installed models are discovered automatically; Glimmer is selected by default when its name is present. Choosing another model is saved. Models must support images for photo review.
+The phone uses its photo picker and communicates with the BenchMate backend. Browser camera capture, HTTPS, and installable PWA packaging are not configured yet. Select an image-capable supported Muse model for photo review.
 
 ## What works now
 
 - Responsive React/TypeScript interface with Salvage Bay styling and a CSS weathered-metal casing; no external fonts or asset requests.
 - SQLite records with photo upload, manual identification evidence, condition, quantity, storage location, and manual documentation links/excerpts.
 - Persistent projects, progress notes, next actions, reservation, installation, recovery, and movement history.
-- Local Ollama or Meta hosted chat with inventory context, selected-item photo, identification prompts, build-idea prompts, and separate saved model selections.
+- Meta Model API chat with inventory context, selected-item photo, identification prompts, build-idea prompts, and saved Muse model selection.
 - Photo review produces a validated, editable proposal for label text and identity observations. The user must save it to update the inventory card. Photo/model provenance and uncertainty are retained; model proposals never set identity to confirmed. The badge explicitly says “User-confirmed identity.”
 - JSON record export. To back up photos and the actual database, stop the server and copy the entire `data/` directory. JSON export alone is not a complete backup or an import format.
 
@@ -133,7 +135,7 @@ Open a Stash record to use Details, Specs & sources, and History. Donor devices 
 
 Potential assemblies never enter component stock or allocation lists. Removed recovered parts retain provenance; removing a child does not undo physical recovery or replenish the donor's map. The linked donor/child records can be opened from the editor when active; removed records must first be restored from Removed. Save keeps the normal editor behavior of committing and closing the record.
 
-Map salvage uses the explicitly selected provider, with no cloud fallback. Local Qwen can map text/notes; a photo requires a model that supports images. No new Meta generation was used to test this feature. All 22 automated tests and the production build passed after this addition. Automated checks use synthetic fixtures and local model stubs. An isolated browser check exercised editable local Qwen proposals, manual corrections, save, partial recovery, parent/child provenance, history, and persistence across restart; it did not modify the real stash. This checks the workflow, not component-recognition or specification accuracy. Datasheet retrieval remains unfinished.
+Map salvage uses the selected Muse model through Meta Model API. Synthetic HTTP and isolated browser checks validate editable proposals, corrections, recovery provenance, persistence and inventory safeguards. These checks establish workflow behavior, not component-recognition or specification accuracy. Automatic datasheet retrieval remains unfinished.
 
 ## Build Ideas conversation workspace
 
@@ -149,7 +151,7 @@ Identify, donor salvage mapping, and Boardroom mapping return reviewable results
 
 Explore my stash creates a fresh exploration in Build Ideas and starts the whole-stash ideas request. Reply mode, attachments, and model-context/usage details live under Reply settings. Hosted mode still identifies the provider and what leaves the PC. Merely opening a conversation or changing views does not call a model.
 
-Synthetic tests cover legacy migration, history isolation, project context, promotion, identification separation, persistence, and existing inventory boundaries. Browser checks use an isolated database and delayed local model stub to verify drafts, reload position, new-reply behavior, inline Identify, and promotion without spending API credits or changing the real stash.
+Synthetic tests cover legacy migration, history isolation, project context, promotion, identification separation, persistence, and existing inventory boundaries. Browser checks use an isolated database and delayed synthetic model stub to verify drafts, reload position, new-reply behavior, inline Identify, and promotion without spending API credits or changing the real stash.
 
 ## Chat inventory actions
 
@@ -169,6 +171,14 @@ Existing stock additions show the additional count and before/after totals. They
 
 Transfers and returns operate on reserved units only, including partial quantities. Installed parts require a separate physical recovery record. All stock checks, mutations, audit events and receipts commit together. Replaying an action or double-clicking its save returns the existing result without adding stock or moving it again. Dismissed cards cannot execute. Saved receipts remain in their originating conversation with a link to the Stash item. These actions do not automate physical recovery, installation, condition changes, project updates or Boardroom mapping.
 
+## Suggested project parts
+
+In **Projects**, choose **Suggest parts** on a saved project. The selected model reads that project's goal, notes and current Stash context and proposes an editable requirements list. Review names, quantities, purposes, verification checks and candidate Stash matches, then **Save parts list**. You can add or remove requirements manually. Unknown quantities remain blank until you establish them. Draft edits survive reload in this browser; saved lists persist with the project and are included in project chat context and JSON export. Saved lists start collapsed with a compact requirements summary. Expanded lists scroll within a bounded panel, with editing/save controls outside that scroll area. New proposals open for review; saving collapses them again, and hiding a draft does not discard edits.
+
+Suggestions are separate from stock and reservations. The list shows reserved/installed coverage, available units to reserve, and remaining shortages for each matched requirement. Repeated requirements cannot count the same stock twice. **Reserve for project** opens the existing reservation form; only its confirmation changes allocations. Untested or unresolved Stash matches are candidates, not verified compatibility. Reusable tools and intact donors are not installable parts. Project edits preserve the saved list; stale list saves are rejected. Regenerating prepares a replacement draft and does not overwrite the saved list until you save it.
+
+Offline tests cover parsing, unknown quantities, invalid matches, stale saves, persistence and no stock mutation. Optional `node scripts/verify-project-parts.mjs --live-meta` checks one synthetic project/catalog with the configured Meta model without reading or changing real inventory.
+
 ## Model context
 
 Every request builds a fresh compact catalog before adding detailed evidence. For a normal bench-sized stash this includes every active record's name, kind, total/free quantity, identity, condition, photo availability, active project allocations, dismantled state, and user-recorded recovery origin. Removed stock stays excluded. Project summaries include names, statuses and goals. Larger catalogs remain bounded and report exact omission counts instead of implying that missing detail means missing inventory.
@@ -177,9 +187,9 @@ The selected item, names/topics in the question, project allocations, and recove
 
 Current saved fields and notes override older AI observations. A recorded recovery is accepted as the user's physical-recovery bookkeeping, without claiming it verifies identity, electrical ratings, compatibility or working condition. Ordinary chat/build ideas do not receive old photo-review uncertainty; identification can receive a clearly historical observation for the selected item. Potential donor assemblies remain separate from actual stock. At most one explicitly selected/uploaded image is attached; seeing a photoAvailable flag does not mean the model sees that image.
 
-Context data is bounded to 12,500 characters for local Ollama and 18,000 for Meta, plus system instructions, the current question and up to six shortened messages from the active conversation only. Both adapters use the same context builder. The Model context disclosure after a reply shows included/total inventory summaries, detailed item names, project-summary coverage, and whether a photo was attached. It describes the just-completed request and resets with the session's last-reply metrics on page reload.
+Context data is bounded to 18,000 characters, plus system instructions, the current question and up to six shortened messages from the active conversation only. All requests use the same context builder. The Model context disclosure after a reply shows included/total inventory summaries, detailed item names, project-summary coverage, and whether a photo was attached. It describes the just-completed request and resets with the session's last-reply metrics on page reload.
 
-All 26 tests passed, including long early evidence versus late recovered components, relevant notes/source selection, recorded-recovery precedence, bounded oversized catalogs, and HTTP report/image forwarding. Validation uses isolated synthetic data; it does not measure real component-recognition accuracy. A live local Qwen/browser check supplied 17/17 synthetic item summaries, 12 detailed records and one project. The reply accepted recorded LCD/speaker recovery and asked for interface evidence; the context disclosure correctly reported no attached photo. No Meta generation was used for this addition.
+Context regression checks cover long early evidence versus late recovered components, relevant notes/source selection, recorded-recovery precedence, bounded oversized catalogs, and HTTP report/image forwarding. Synthetic validation does not measure real component-recognition accuracy.
 
 ## Model and document boundaries
 
@@ -187,34 +197,35 @@ Generated replies provide advice and cannot mutate inventory. BenchMate separate
 
 Stash includes identification directly in the item editor. Open a record, or add a new find and upload a photo, then select Identify. A structured photo review fills editable name/markings/evidence fields in that same form. Compare with the photo, correct the transcription, and save. Previously entered evidence is retained, and unreadable output does not erase previously saved markings. For a new unnamed find the candidate name fills the empty name field. Existing names and evidence are preserved; Use suggested name explicitly replaces an existing name and resets identity to unresolved for user review. Quantity, condition, notes, location, and sources are preserved. Identification does not create or update an inventory record until you save. The form stays open and locked while inference runs, with progress and Stop controls. Proposals are rejected if the record changes before application. Replacing the photo clears its old photo-review provenance. Printed capacities and output labels are treated as label claims, not tested electrical specifications or independently retrieved datasheet facts.
 
-An earlier live Glimmer/browser check used `docs/synthetic-label.png` in an isolated stash: all six lines were transcribed, the inventory remained unchanged before Save, and the saved card retained the transcription while identity remained unresolved. This is a synthetic integration check, not an electronics-recognition accuracy evaluation. Online/connected status refers to a provider connection check, not proof of answer quality or that a local model is loaded.
+Connected status means the Meta model-list check succeeded; it does not establish answer quality or component-recognition accuracy.
 
 The merged Stash workflow was also checked with live Glimmer in an isolated browser session: Identify populated the open form while preserving an unsaved quantity and note; Save then committed both the reviewed metadata and those edits. Automated checks cover new unsaved photo drafts, existing forms, unreadable labels, and stale versions.
 
-Local Ollama requests use an 8K context. Both providers receive bounded context, at most one attached photo, a 4,096-token generation cap, and a five-minute timeout. Balanced mode requests low reasoning if the model advertises it; Quick reply requests reasoning off if supported. Otherwise the adapter uses only supported controls or leaves the model default unchanged. These settings apply per request and do not change Ollama's model defaults or CPU/GPU layer placement.
+Meta requests receive bounded context, at most one attached photo, a 4,096-token generation cap, and a five-minute timeout. Balanced mode requests low reasoning; Quick reply requests minimal reasoning. These are per-request bounds, not account spending limits.
 
-The conversation streams visible answer text and reports loading, reasoning, and writing phases without displaying internal reasoning. Failed requests retain the question for retry. Generation exhaustion, an empty answer, a disconnected stream, cancellation, and the five-minute deadline have distinct handling; truncated visible answers are marked incomplete. A local post-fix text smoke test completed in about 13 seconds; this is not a workload benchmark. Provider adapters live in `server/index.mjs`, `server/inference.mjs`, and `server/meta.mjs`. Local Ollama requests use no API credits. Selecting Meta hosted sends bounded context and any selected image to Meta and uses the account’s API credits/billing.
+The conversation streams visible answer text and reports loading, reasoning, and writing phases without displaying internal reasoning. Failed requests retain the question for retry. Generation exhaustion, an empty answer, a disconnected stream, cancellation, and the five-minute deadline have distinct handling; truncated visible answers are marked incomplete. Meta requests send the disclosed context and selected image to Meta and use the account’s API credits/billing.
 
-Ollama GPU initialization failures, memory allocation failures, and model-process crashes get concise actionable messages and a diagnostic code. This error handling does not repair the underlying runtime. A CUDA shared-object initialization crash was observed during model warm-up on this Windows machine; do not assume every such crash is out-of-memory. Try one fresh request, then restart Ollama or select another installed model if it repeats. BenchMate does not automatically restart Ollama, switch models, change drivers, or retry inference after a runtime crash. Ollama's own logs remain the source for low-level diagnostics.
+Meta authentication, access, quota and service errors receive actionable messages. Upstream error bodies and API credentials are not exposed. Failures never switch providers or silently retry.
 
 Datasheet retrieval, source authenticity checks, PDF extraction, structured build plans, wiring verification, and a proven electronics-recognition evaluation set remain unfinished. Pasted excerpts are user-supplied evidence, not independently verified sources. Prompt instructions request uncertainty and source grounding; they do not guarantee model correctness.
 
 ## Verification
 
+The Meta API-only submission build passes **76 automated tests** and the production build. Regression coverage rejects non-Meta providers/models and corrupt selections, preserves inventory/history when retiring legacy settings, and verifies the existing project and board workflows. Tests for the removed local adapter were retired.
+
+The standalone [judge preview](judge-preview/index.html) is a separate static application with curated sample data and recorded examples. It requires no account or API key and makes no live AI calls. See the [preview handoff](docs/static-preview-handoff.md) and [model boundary](docs/model-boundary-audit.md).
+
 The initial public source snapshot passes all 46 automated tests and the production build. Tests cover conversation isolation, photo review, Boardroom recovery, inventory accounting, chat-created Stash cards, reservation transfers/returns, and duplicate-request protection. They use synthetic inventory and local provider stubs; they do not establish real-world component-recognition accuracy.
 
-Meta integration was checked with 19 passing automated tests and a production build. Live `muse-spark-1.3` checks used an isolated empty stash: a short text response completed in about one second, and structured photo review transcribed all six lines of `docs/synthetic-label.png` in about two seconds without creating inventory. A browser check verified provider switching, preserved model selections, a streamed reply, and displayed token usage. These are individual synthetic integration checks, not performance benchmarks or electronics-identification accuracy results. No real stash records or photos were sent during these checks.
+Meta integration was checked with 19 passing automated tests and a production build. Live `muse-spark-1.3` checks used an isolated empty stash: a short text response completed in about one second, and structured photo review transcribed all six lines of `docs/synthetic-label.png` in about two seconds without creating inventory. An earlier browser check verified streamed replies and displayed token usage; the current submission build removes provider switching. These are individual synthetic integration checks, not performance benchmarks or electronics-identification accuracy results. No real stash records or photos were sent during these checks.
 
 ```powershell
 npm.cmd test
 npm.cmd run build
-# Optional: makes a real local Ollama request using an isolated temporary stash.
-node scripts/verify-live.mjs
-node scripts/verify-live.mjs --vision
 ```
 
-Automated tests use synthetic stock and a stub Ollama server to check allocation invariants, persistence across restart, image validation, model/photo context forwarding, inference errors, and the cross-origin boundary. Live smoke scripts do not populate the real stash. A live text smoke test with the installed `muse-glimmer:30b-q4_K_M` answered in about 57 seconds. A separate synthetic blank-image request answered in about 35 seconds and reported no identifiable components. These smoke checks establish connectivity, not real-component recognition quality or benchmark performance. Browser checks in a narrow viewport exercised adding a synthetic record, confirming identity, creating a project, reserving, installing, and returning a component; test stock was kept in a separate database. Access from a physical phone has not been verified.
+Automated tests use synthetic stock and an isolated Meta HTTP/SSE stub to check allocation invariants, persistence, image validation, model/photo context forwarding, inference failures and origin boundaries. They do not load the real environment file or spend API credits. Explicit live smoke scripts use temporary data. Physical-phone access and broad recognition accuracy require separate validation.
 
-Selected stack: React + TypeScript + Vite, Express, Node's built-in SQLite, local Ollama, and optional Meta Model API. Local data is excluded from source control. Open decisions: document retrieval, supported demonstration hardware, exact submission requirements, and how much inference latency is acceptable.
+Selected stack: React + TypeScript + Vite, Express, Node’s built-in SQLite and Meta Model API. Local data and credentials are excluded from source control.
 
-See [DESIGN.md](DESIGN.md) for the visual direction. BenchMate uses your existing Ollama installation; it does not install or reconfigure a model runtime.
+See [DESIGN.md](DESIGN.md) for the visual direction.

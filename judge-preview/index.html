@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="Explore BenchMate's four-tab salvage workbench using sample inventory and a recorded board map. No live AI, account, or API key.">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <meta name="referrer" content="no-referrer"><meta name="color-scheme" content="dark">
+  <title>BenchMate · Interactive preview</title>
+  <link rel="stylesheet" href="./style.css"><script type="module" src="./app.js"></script>
+</head>
+<body>
+  <a class="skip" href="#main">Skip to workbench</a>
+  <div class="preview-note"><span class="status-dot"></span><strong>Interactive preview · sample data · no live AI</strong><span class="note-detail">Recorded examples. Changes stay in this browser.</span><button id="reset" class="text-button">Reset sample</button></div>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="#stash"><span class="brand-icon" data-icon="board"></span><span>BENCH<span class="light">MATE</span><small>SALVAGE BAY / PREVIEW</small></span></a>
+      <div class="side-label">YOUR WORKBENCH</div>
+      <nav aria-label="Workbench tabs" id="navigation"></nav>
+      <div class="side-bottom"><span data-icon="spark"></span><p>Nothing is junk.<small>Some things just need a plan.</small></p></div>
+      <div class="local-card"><span class="status-dot"></span> SAMPLE BENCH<small>No account. No key. No model connection.</small></div>
+    </aside>
+    <div class="workspace">
+      <header class="topbar"><span>WORKBENCH <span class="separator">/</span> <b id="breadcrumb">STASH</b></span><span class="top-right"><span class="status-dot"></span> BROWSER-LOCAL SAMPLE</span></header>
+      <main id="main" tabindex="-1"></main>
+      <footer><span>YOUR STASH. YOUR NEXT BUILD.</span><span>Preview of the full BenchMate app · <a href="https://github.com/simss4241-cmyk/BenchMate" target="_blank" rel="noopener noreferrer">Source code ↗</a></span></footer>
+    </div>
+  </div>
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+  <dialog id="modal" aria-labelledby="modal-title"></dialog>
+  <noscript>This interactive sample needs JavaScript. It does not connect to a model or use an API key.</noscript>
+</body></html>

@@ -20,11 +20,10 @@ export function buildContext(
     mode = "chat",
     itemId = null,
     photo = null,
-    provider = "ollama",
     projectId = null,
   } = {},
 ) {
-  const totalBudget = provider === "meta" ? 18000 : 12500;
+  const totalBudget = 18000;
   const catalogBudget = Math.floor(totalBudget * 0.65);
   const items = snapshot.items.filter((i) => !i.removedAt);
   const projects = snapshot.projects;
@@ -201,6 +200,19 @@ export function buildContext(
         projectId: p.id,
         notes: snippet(p.notes, 650),
         nextAction: clip(p.nextAction, 250),
+        suggestedParts: p.suggestedParts
+          ? {
+              summary: clip(p.suggestedParts.summary, 350),
+              rows: p.suggestedParts.rows.slice(0, 20).map((r) => ({
+                name: clip(r.name, 160),
+                quantity: r.quantity,
+                itemId: r.itemId,
+                verification: clip(r.verification, 180),
+              })),
+              meaning:
+                "Suggested requirements, not reserved or verified compatible stock",
+            }
+          : undefined,
       });
   }
   // Include the selected item first; otherwise prioritize named/recovered/allocated parts.

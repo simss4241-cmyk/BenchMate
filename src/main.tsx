@@ -2,6 +2,8 @@ import { BenchPhoto } from "./bench-photo";
 import React, { useEffect, useRef, useState } from "react";
 import { ChatActionCard, type ChatAction } from "./chat-action-card";
 import { ProjectInventory } from "./project-inventory";
+import { ProjectPartsPlan } from "./project-parts-plan";
+import type { PartsPlan } from "./project-parts";
 import {
   ConversationHub,
   ConversationActions,
@@ -99,6 +101,8 @@ type Project = {
   notes: string;
   nextAction: string;
   status: "planning" | "building" | "paused" | "complete";
+  updatedAt?: string;
+  suggestedParts?: PartsPlan;
 };
 type Allocation = {
   id: string;
@@ -111,6 +115,7 @@ type Snapshot = {
   chatActions: ChatAction[];
   conversations: Conversation[];
   boards: Board[];
+  removedBoards?: Board[];
   items: Item[];
   removedItems: Item[];
   projects: Project[];
@@ -127,7 +132,7 @@ type Snapshot = {
   }[];
 };
 type Models = {
-  provider?: "ollama" | "meta";
+  provider?: "meta";
   configured?: boolean;
   connected: boolean;
   models: string[];
@@ -759,7 +764,7 @@ function App() {
           manageStock: actionMode === "stock",
           actionChoiceId,
           conversationId: analysis ? null : conversationId,
-          provider: models.provider || "ollama",
+          provider: models.provider || "meta",
           model: models.selected,
           itemId: photoOverride
             ? null
@@ -801,7 +806,7 @@ function App() {
           finished = true;
           if (!analysis && !event.action && event.context)
             setLastRun({
-              provider: event.provider || "ollama",
+              provider: event.provider || "meta",
               model: event.model,
               seconds: event.seconds,
               usage: event.usage,
@@ -1074,34 +1079,11 @@ function App() {
             </p>
           </div>
           <div className="model-box">
-            <label className="sr-only" htmlFor="provider">
-              Model provider
-            </label>
-            <select
-              id="provider"
-              value={models.provider || "ollama"}
-              disabled={busy || boardMapping || saving}
-              onChange={(e) => {
-                const provider = e.target.value;
-                void perform(async () => {
-                  await api("/provider", { provider }, "PUT");
-                  await refreshModels();
-                });
-              }}
-            >
-              <option value="ollama">Local Ollama</option>
-              <option value="meta">Meta hosted API</option>
-            </select>
+            <p className="quiet-note">Meta Model API</p>
             <div className="model-heading">
               <span className={`led ${models.connected ? "on" : ""}`} />
               <span>
-                {models.provider === "meta"
-                  ? models.connected
-                    ? "META CONNECTED"
-                    : "META NOT CONNECTED"
-                  : models.connected
-                    ? "OLLAMA CONNECTED"
-                    : "OLLAMA OFFLINE"}
+                {models.connected ? "META CONNECTED" : "META NOT CONNECTED"}
               </span>
               <button
                 className="icon-button"
@@ -1131,6 +1113,11 @@ function App() {
               {!models.models.length && (
                 <option value="">No models available</option>
               )}
+              {models.models.length > 0 && !models.selected && (
+                <option value="" disabled>
+                  Choose a supported Muse model
+                </option>
+              )}
               {models.selected && !models.models.includes(models.selected) && (
                 <option value={models.selected} disabled>
                   {models.selected} (unavailable)
@@ -1140,11 +1127,7 @@ function App() {
                 <option key={m}>{m}</option>
               ))}
             </select>
-            <small>
-              {models.provider === "meta"
-                ? "Hosted model · local inventory"
-                : "Local model · local inventory"}
-            </small>
+            <small>Hosted model · local inventory</small>
             {models.error && <p className="provider-error">{models.error}</p>}
           </div>
           <button className="settings-link" onClick={() => setInfo(true)}>
@@ -1297,11 +1280,12 @@ function App() {
               <div hidden={tab !== "Boardroom"}>
                 <Boardroom
                   boards={state.boards || []}
+                  removedBoards={state.removedBoards || []}
                   items={state.items}
                   model={models.selected}
-                  provider={models.provider || "ollama"}
+                  provider={models.provider || "meta"}
                   modelReady={modelReady}
-                  chatBusy={busy}
+                  chatBusy={busy || boardMapping}
                   onRefresh={refresh}
                   onMappingChange={setBoardMapping}
                   onEditItem={(id) => {
@@ -1693,6 +1677,18 @@ function App() {
                           </p>
                         </div>
                         {p.notes && <p className="project-notes">{p.notes}</p>}
+                        <ProjectPartsPlan
+                          project={p}
+                          items={state.items}
+                          allocations={state.allocations}
+                          models={models}
+                          disabled={busy || boardMapping || saving}
+                          onWorkingChange={setBoardMapping}
+                          onRefresh={refresh}
+                          onReserve={(itemId, quantity) =>
+                            setAllocation({ itemId, projectId: p.id, quantity })
+                          }
+                        />
                         <div className="allocation-title">
                           <span>PARTS ON THIS PROJECT</span>
                           <button
@@ -1853,13 +1849,7 @@ function App() {
                   </h2>
                   <span>
                     <span className={`led ${models.connected ? "on" : ""}`} />
-                    {models.provider === "meta"
-                      ? models.connected
-                        ? "META HOSTED"
-                        : "META NOT CONNECTED"
-                      : models.connected
-                        ? "OLLAMA ONLINE"
-                        : "WAITING FOR OLLAMA"}
+                    {models.connected ? "META HOSTED" : "META NOT CONNECTED"}
                   </span>
                 </div>
                 <div className="assistant-header-actions">
@@ -2063,9 +2053,7 @@ function App() {
                   )}
                   {lastRun && (
                     <p className="last-run">
-                      Last reply:{" "}
-                      {lastRun.provider === "meta" ? "Meta" : "Local"} ·{" "}
-                      {lastRun.seconds}s
+                      Last reply: {"Meta"} · {lastRun.seconds}s
                       {lastRun.usage?.totalTokens
                         ? ` · ${lastRun.usage.totalTokens.toLocaleString()} tokens`
                         : ""}
@@ -2147,7 +2135,7 @@ function App() {
                     placeholder={
                       models.connected
                         ? "Ask about a part or your next build…"
-                        : "Connect a model provider to chat…"
+                        : "Connect Meta to chat…"
                     }
                     value={message}
                     disabled={!!activeConversation?.legacy}
@@ -2861,9 +2849,8 @@ function App() {
                       )}
                       {models.provider === "meta" && (
                         <p className="quiet-note">
-                          Map salvage uses Meta hosted API when selected and
-                          sends this donor photo and limited context. Choose
-                          Local Ollama for local testing.
+                          Map salvage sends this donor photo and limited context
+                          to Meta Model API for review.
                         </p>
                       )}
                     </div>
@@ -3196,15 +3183,12 @@ function App() {
               </p>
               <p>
                 {models.error ||
-                  `Selected: ${models.provider === "meta" ? "Meta hosted" : "Local Ollama"} / ${models.selected}`}
+                  `Selected: Meta Model API / ${models.selected}`}
               </p>
               <p>
-                Choose a provider and model from the sidebar. Photo review
-                requires a vision-capable model. Local Ollama uses an 8K
-                context; both providers receive limited inventory context and at
-                most one selected image per request. Provider switching is
-                explicit and saved; failures do not trigger automatic cloud
-                fallback.
+                Choose a supported Muse model from the sidebar. Meta receives
+                bounded inventory context and at most one selected image per
+                request. There are no automatic retries or alternate providers.
               </p>
               <h3>Your records</h3>
               <p>

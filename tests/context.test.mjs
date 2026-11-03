@@ -62,7 +62,7 @@ test("whole catalog gets priority over long earlier evidence; late parts are not
     /drawer A/,
   );
   assert.doesNotMatch(JSON.stringify(packet), /OLD CONDITION/);
-  assert.ok(report.characters <= 12500);
+  assert.ok(report.characters <= 18000);
   assert.match(contextRules, /do not demand a photo/);
 });
 test("selected and query-matched evidence includes notes, relevant sources and project instructions", () => {
@@ -160,6 +160,6 @@ test("very large catalogs stay bounded, report omissions, and prioritize named i
   assert.equal(packet.inventory[0].id, "id-1999");
   assert.ok(packet.omittedInventoryRecords > 0);
   assert.equal(packet.totalInventoryRecords, 2000);
-  assert.ok(report.characters <= 12500);
+  assert.ok(report.characters <= 18000);
   assert.ok(!packet.inventory.some((i) => i.id === "removed"));
 });

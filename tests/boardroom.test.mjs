@@ -179,6 +179,66 @@ const project = {
   nextAction: "",
 };
 
+test("board removal is restorable and preserves recovered stock, allocations and source safeguards", () => {
+  const store = openStore(":memory:");
+  try {
+    const donor = store.saveItem(item);
+    const b = store.saveBoard(board({ linkedItemId: donor.id }));
+    const child = store.recoverBoard(
+      b.id,
+      b.components[0].id,
+      1,
+      b.updatedAt,
+      "Drawer",
+    );
+    const p = store.saveProject(project);
+    store.allocate(child.id, p.id, 1);
+    const before = store.snapshot(),
+      current = before.boards[0];
+    assert.throws(
+      () => store.setBoardRemoved(b.id, true, b.updatedAt),
+      /changed/,
+    );
+    const removed = store.setBoardRemoved(b.id, true, current.updatedAt);
+    const after = store.snapshot();
+    assert.equal(after.boards.length, 0);
+    assert.equal(after.removedBoards[0].id, b.id);
+    assert.deepEqual(after.items, before.items);
+    assert.deepEqual(after.allocations, before.allocations);
+    assert.deepEqual(removed.components, current.components);
+    assert.deepEqual(removed.recoveries, current.recoveries);
+    store.setBoardRemoved(b.id, true, current.updatedAt);
+    assert.equal(
+      store.snapshot().events.filter((e) => e.type === "board.removed").length,
+      1,
+    );
+    assert.throws(
+      () =>
+        store.saveBoard({ ...b, expectedUpdatedAt: removed.updatedAt }, b.id),
+      /Restore/,
+    );
+    assert.throws(
+      () => store.recoverBoard(b.id, b.components[0].id, 1, removed.updatedAt),
+      /Restore/,
+    );
+    assert.throws(
+      () => store.saveBoard(board({ linkedItemId: donor.id })),
+      /Link one|already has/,
+    );
+    assert.throws(
+      () => store.setBoardRemoved(b.id, false, current.updatedAt),
+      /changed/,
+    );
+    const restored = store.setBoardRemoved(b.id, false, removed.updatedAt);
+    assert.equal(restored.removedAt, undefined);
+    assert.equal(store.snapshot().removedBoards.length, 0);
+    assert.deepEqual(store.snapshot().boards[0].recoveries, current.recoveries);
+    assert.deepEqual(store.snapshot().items, before.items);
+  } finally {
+    store.db.close();
+  }
+});
+
 test("board maps reject malformed geometry, duplicate IDs, missing photos and truncated inference", () => {
   const fixture = board();
   assert.equal(boardSchema.parse(fixture).components.length, 1);

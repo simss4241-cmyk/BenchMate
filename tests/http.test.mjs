@@ -28,21 +28,49 @@ test(
       },
       planCalls = 0,
       photoRelevance = "bench_item";
+    let partsPlanReply = { summary: "Synthetic suggested list", rows: [] };
     const mock = createServer(async (req, res) => {
       res.setHeader("Content-Type", "application/json");
-      if (req.url === "/api/tags")
-        return res.end(JSON.stringify({ models: [{ name: "test-glimmer" }] }));
-      if (req.url === "/api/show")
-        return res.end(
-          JSON.stringify({
-            thinking: { values: [false, "low", "high"], default: "high" },
-          }),
-        );
-      if (req.url === "/api/chat") {
+      if (req.url === "/v1/models")
+        return res.end(JSON.stringify({ data: [{ id: "muse-spark-1.3" }] }));
+      if (req.url === "/v1/chat/completions") {
         let body = "";
         for await (const chunk of req) body += chunk;
         chatBody = JSON.parse(body);
-        if (chatBody.format?.properties?.intent) {
+        const format = chatBody.response_format?.json_schema.schema;
+        // Convert concise fixture envelopes into the provider's SSE wire format.
+        res.setHeader("Content-Type", "text/event-stream");
+        const write = res.write.bind(res),
+          end = res.end.bind(res);
+        const event = (value) => {
+          const chunk = JSON.parse(String(value).trim());
+          return `data: ${JSON.stringify({
+            choices: [
+              {
+                delta: {
+                  ...(chunk.message?.content
+                    ? { content: chunk.message.content }
+                    : {}),
+                },
+                finish_reason: chunk.done ? chunk.done_reason : null,
+              },
+            ],
+          })}\n\n${chunk.done ? "data: [DONE]\n\n" : ""}`;
+        };
+        res.write = (value) => write(event(value));
+        res.end = (value) => {
+          if (res.statusCode >= 400) return end(value);
+          return end(event(value));
+        };
+        if (format?.properties?.rows)
+          return res.end(
+            JSON.stringify({
+              message: { content: JSON.stringify(partsPlanReply) },
+              done: true,
+              done_reason: "stop",
+            }) + "\n",
+          );
+        if (format?.properties?.intent) {
           planCalls++;
           return res.end(
             JSON.stringify({
@@ -57,7 +85,7 @@ test(
             }) + "\n",
           );
         }
-        if (chatBody.format?.properties?.regions)
+        if (format?.properties?.regions)
           return res.end(
             JSON.stringify({
               message: {
@@ -81,7 +109,7 @@ test(
               done_reason: "stop",
             }),
           );
-        if (chatBody.format?.properties?.components)
+        if (format?.properties?.components)
           return res.end(
             JSON.stringify({
               message: {
@@ -103,13 +131,13 @@ test(
               done_reason: "stop",
             }),
           );
-        if (chatBody.format)
+        if (format)
           return res.end(
             JSON.stringify({
               message: {
                 content: JSON.stringify({
                   candidateName: "Synthetic power bank",
-                  ...(chatBody.format?.properties?.benchRelevance
+                  ...(format?.properties?.benchRelevance
                     ? { benchRelevance: photoRelevance }
                     : {}),
                   markings:
@@ -157,10 +185,7 @@ test(
           JSON.stringify(
             failChat
               ? {
-                  error:
-                    failChat === "cuda"
-                      ? "llama-server process has terminated: exit status 0xc0000409: CUDA error: shared object initialization failed"
-                      : "Synthetic model failure",
+                  error: "Synthetic model failure",
                 }
               : {
                   message: {
@@ -196,10 +221,13 @@ test(
         env: {
           ...process.env,
           BENCHMATE_SKIP_ENV: "1",
-          BENCHMATE_PROVIDER: "ollama",
+          BENCHMATE_TEST_MODE: "1",
+          MODEL_API_KEY: "synthetic-test-key",
+          META_API_KEY: "",
+          META_MODEL: "muse-spark-1.3",
           PORT: String(port),
           BENCHMATE_DATA: temp,
-          BENCHMATE_OLLAMA_PORT: String(mock.address().port),
+          BENCHMATE_META_TEST_PORT: String(mock.address().port),
         },
         stdio: ["ignore", "pipe", "pipe"],
       });
@@ -350,7 +378,7 @@ test(
         ).status,
         400,
       );
-      assert.equal((await call("/models")).body.selected, "test-glimmer");
+      assert.equal((await call("/models")).body.selected, "muse-spark-1.3");
       const answer = await call("/chat", {
         message: "Review this synthetic part.",
         itemId: id,
@@ -364,10 +392,14 @@ test(
       assert.equal(answer.body.context.detailedItems[0].id, id);
       assert.match(chatBody.messages[0].content, /CURRENT SAVED STATE/);
       assert.match(chatBody.messages[0].content, /Synthetic fixture/);
-      assert.equal(chatBody.think, "low");
-      assert.equal(chatBody.options.num_predict, 4096);
+      assert.equal(chatBody.reasoning_effort, "low");
+      assert.equal(chatBody.max_tokens, 4096);
       assert.equal(chatBody.stream, true);
-      assert.equal(chatBody.messages.at(-1).images.length, 1);
+      assert.equal(
+        chatBody.messages.at(-1).content.filter((c) => c.type === "image_url")
+          .length,
+        1,
+      );
       assert.match(chatBody.messages[0].content, /Synthetic motor/);
       assert.equal((await call("/state")).body.messages.length, 0);
       const streamed = await fetch(`http://127.0.0.1:${port}/api/chat`, {
@@ -384,7 +416,7 @@ test(
         .trim()
         .split("\n")
         .map((s) => JSON.parse(s));
-      assert.equal(chatBody.think, false);
+      assert.equal(chatBody.reasoning_effort, "minimal");
       assert.ok(
         events.some((e) => e.type === "progress" && e.phase === "answering"),
       );
@@ -493,15 +525,6 @@ test(
         (await call("/chat", { message: "Failure test", photo: null })).status,
         502,
       );
-      assert.equal((await call("/state")).body.messages.length, 2);
-      failChat = "cuda";
-      const gpuFailure = await call("/chat", {
-        message: "GPU failure test",
-        photo: null,
-      });
-      assert.equal(gpuFailure.status, 502);
-      assert.equal(gpuFailure.body.code, "OLLAMA_CUDA_INITIALIZATION");
-      assert.match(gpuFailure.body.error, /initialize the GPU/);
       assert.equal((await call("/state")).body.messages.length, 2);
       assert.equal(
         (await call(`/items/${id}`, undefined, "DELETE")).status,
@@ -656,11 +679,45 @@ test(
         (await call(`/boards/${board.body.id}/recover`, recoveryBody)).status,
         400,
       );
+      const currentBoard = (await call("/state")).body.boards.find(
+        (b) => b.id === board.body.id,
+      );
+      assert.equal(
+        (
+          await call(
+            `/boards/${board.body.id}`,
+            { expectedUpdatedAt: board.body.updatedAt },
+            "DELETE",
+          )
+        ).status,
+        400,
+      );
+      const removedBoard = await call(
+        `/boards/${board.body.id}`,
+        { expectedUpdatedAt: currentBoard.updatedAt },
+        "DELETE",
+      );
+      assert.equal(removedBoard.status, 200);
+      assert.ok(
+        !(await call("/state")).body.boards.some((b) => b.id === board.body.id),
+      );
       await stop();
       cookie = "";
       await start();
       cookie = (await call("/session")).headers.get("set-cookie").split(";")[0];
       const persisted = (await call("/state")).body.items;
+      const archived = (await call("/state")).body.removedBoards.find(
+        (b) => b.id === board.body.id,
+      );
+      assert.equal(archived.recoveries.length, 1);
+      assert.equal(
+        (
+          await call(`/boards/${board.body.id}/restore`, {
+            expectedUpdatedAt: archived.updatedAt,
+          })
+        ).status,
+        200,
+      );
       assert.equal(
         (await call("/state")).body.boards.find((b) => b.id === board.body.id)
           .recoveries.length,
@@ -1301,6 +1358,109 @@ test(
           requestId: randomUUID(),
         });
         assert.equal((await call("/state")).body.items.length, stockBefore);
+      }
+      {
+        const projectReply = await call("/projects", {
+          name: "Suggested parts test",
+          goal: "Make a small rover mobile",
+          notes: "Check the driver design first",
+          nextAction: "Identify required control parts",
+          status: "planning",
+        });
+        const target = projectReply.body;
+        const before = (await call("/state")).body;
+        const candidate = before.items.find(
+          (i) => i.kind === "part" && i.condition === "untested",
+        );
+        partsPlanReply = {
+          summary: "Mobility plan with missing driver",
+          rows: [
+            {
+              name: "Drive motor",
+              quantity: 2,
+              purpose: "Wheel motion",
+              verification: "Verify torque and voltage",
+              itemId: candidate.id,
+            },
+            {
+              name: "Motor driver",
+              quantity: null,
+              purpose: "Drive the selected motors",
+              verification: "Verify controller and motor requirements",
+              itemId: null,
+            },
+          ],
+        };
+        const proposed = await call("/chat", {
+          message: "Suggest parts for my project",
+          proposeParts: true,
+          mode: "ideas",
+          projectId: target.id,
+          expectedUpdatedAt: target.updatedAt,
+        });
+        assert.equal(proposed.status, 200);
+        assert.equal(proposed.body.partsProposal.projectId, target.id);
+        assert.equal(proposed.body.partsProposal.plan.rows[1].quantity, null);
+        assert.ok(
+          chatBody.messages[0].content.includes("Make a small rover mobile"),
+        );
+        assert.equal(proposed.body.context.projectId, undefined);
+        assert.deepEqual((await call("/state")).body.items, before.items);
+        assert.deepEqual(
+          (await call("/state")).body.allocations,
+          before.allocations,
+        );
+        assert.deepEqual((await call("/state")).body.messages, before.messages);
+        assert.equal(
+          (await call("/state")).body.projects.find((p) => p.id === target.id)
+            .suggestedParts,
+          undefined,
+        );
+        const saved = await call(
+          `/projects/${target.id}/suggested-parts`,
+          {
+            plan: proposed.body.partsProposal.plan,
+            expectedUpdatedAt: target.updatedAt,
+          },
+          "PUT",
+        );
+        assert.equal(saved.status, 200);
+        assert.equal(saved.body.suggestedParts.rows.length, 2);
+        assert.equal(
+          (
+            await call(
+              `/projects/${target.id}/suggested-parts`,
+              {
+                plan: proposed.body.partsProposal.plan,
+                expectedUpdatedAt: target.updatedAt,
+              },
+              "PUT",
+            )
+          ).status,
+          400,
+        );
+        assert.equal(
+          (
+            await call("/chat", {
+              message: "Suggest parts",
+              proposeParts: true,
+              projectId: target.id,
+              expectedUpdatedAt: target.updatedAt,
+            })
+          ).status,
+          502,
+        );
+        await stop();
+        cookie = "";
+        await start();
+        cookie = (await call("/session")).headers
+          .get("set-cookie")
+          .split(";")[0];
+        assert.equal(
+          (await call("/state")).body.projects.find((p) => p.id === target.id)
+            .suggestedParts.rows.length,
+          2,
+        );
       }
     } finally {
       await stop();
